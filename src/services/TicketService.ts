@@ -254,6 +254,18 @@ export const TicketService = {
         });
       }
 
+      // Notify the assigned agent (if any, and not the actor) about the move.
+      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.helpdeskAssigneeId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
+          },
+        });
+      }
+
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
         include: TICKET_INCLUDE,
@@ -319,6 +331,24 @@ export const TicketService = {
         });
       }
 
+      // Notify the assigned agent (if any, and not the actor) about the redirect.
+      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.helpdeskAssigneeId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: {
+              ticketCode: before.code,
+              status: 'Assigned',
+              fromDepartmentId: before.routedDepartmentId,
+              toDepartmentId: departmentId,
+              reason: reason ?? null,
+            },
+          },
+        });
+      }
+
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
         include: TICKET_INCLUDE,
@@ -365,6 +395,19 @@ export const TicketService = {
           payload: { ticketCode: before.code, status: 'InProgress' },
         },
       });
+
+      // Notify the assigned agent too (if any, and not the actor) — the
+      // ticket they own just moved to InProgress.
+      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.helpdeskAssigneeId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: { ticketCode: before.code, status: 'InProgress' },
+          },
+        });
+      }
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
@@ -414,6 +457,19 @@ export const TicketService = {
           payload: { ticketCode: before.code, reason: reason ?? null },
         },
       });
+
+      // Notify the assigned agent (if any, and not the actor) on close —
+      // they likely care that a ticket they own just terminated.
+      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.helpdeskAssigneeId,
+            type: 'TicketClosed',
+            ticketId,
+            payload: { ticketCode: before.code, reason: reason ?? null },
+          },
+        });
+      }
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
@@ -503,6 +559,19 @@ export const TicketService = {
         await tx.notification.create({
           data: {
             userId: l.id,
+            type: 'TicketCommented',
+            ticketId,
+            payload: { ticketCode: ticket.code, authorId: caller.id, commentId: comment.id },
+          },
+        });
+      }
+
+      // Notify the assigned agent (if any, and not the comment author) — they
+      // own this ticket and should see new activity on it.
+      if (ticket.helpdeskAssigneeId && ticket.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: ticket.helpdeskAssigneeId,
             type: 'TicketCommented',
             ticketId,
             payload: { ticketCode: ticket.code, authorId: caller.id, commentId: comment.id },
