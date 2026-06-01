@@ -75,8 +75,8 @@ describe('BE-S10 — Analytics summary', () => {
       total: expect.any(Number),
       open: expect.any(Number),
       closed: expect.any(Number),
-      bySeverity: expect.any(Array),
-      byStatus: expect.any(Array),
+      bySeverity: expect.any(Object),
+      byStatus: expect.any(Object),
       byDepartment: expect.any(Array),
       byCategory: expect.any(Array),
     });
@@ -91,8 +91,8 @@ describe('BE-S10 — Analytics summary', () => {
       open: 0,
       closed: 0,
       avgHandlingDays: null,
-      bySeverity: [],
-      byStatus: [],
+      bySeverity: { Critical: 0, High: 0, Medium: 0, Low: 0 },
+      byStatus: { Pending: 0, Assigned: 0, InProgress: 0, Redirected: 0, Closed: 0 },
       byDepartment: [],
       byCategory: [],
     });
@@ -118,11 +118,9 @@ describe('BE-S10 — Analytics summary', () => {
     expect(res.body.data.closed).toBe(3);
     expect(res.body.data.open).toBe(4);
 
-    const byStatus = res.body.data.byStatus as Array<{ status: string; count: number }>;
-    const closedBucket = byStatus.find((b) => b.status === 'Closed');
-    const pendingBucket = byStatus.find((b) => b.status === 'Pending');
-    expect(closedBucket?.count).toBe(3);
-    expect(pendingBucket?.count).toBe(4);
+    const byStatus = res.body.data.byStatus as Record<string, number>;
+    expect(byStatus.Closed).toBe(3);
+    expect(byStatus.Pending).toBe(4);
 
     // avgHandlingDays = 2 days for all 3 closed tickets → exactly 2.
     expect(res.body.data.avgHandlingDays).toBeCloseTo(2, 5);
@@ -155,9 +153,9 @@ describe('BE-S10 — Analytics summary', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(5);
 
-    const bySev = res.body.data.bySeverity as Array<{ severity: string; count: number }>;
-    expect(bySev.find((b) => b.severity === 'High')?.count).toBe(2);
-    expect(bySev.find((b) => b.severity === 'Medium')?.count).toBe(3);
+    const bySev = res.body.data.bySeverity as Record<string, number>;
+    expect(bySev.High).toBe(2);
+    expect(bySev.Medium).toBe(3);
 
     const byCat = res.body.data.byCategory as Array<{
       categoryId: string;

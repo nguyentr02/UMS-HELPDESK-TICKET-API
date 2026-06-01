@@ -8,15 +8,8 @@ export class AnalyticsFailedError extends AppError {
   }
 }
 
-export interface SeverityBucket {
-  severity: 'Critical' | 'High' | 'Medium' | 'Low';
-  count: number;
-}
-
-export interface StatusBucket {
-  status: 'Pending' | 'Assigned' | 'InProgress' | 'Redirected' | 'Closed';
-  count: number;
-}
+type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
+type TicketStatus = 'Pending' | 'Assigned' | 'InProgress' | 'Redirected' | 'Closed';
 
 export interface DepartmentBucket {
   departmentId: string;
@@ -36,11 +29,21 @@ export interface AnalyticsSummary {
   closed: number;
   /** Average days from createdAt → closedAt across closed tickets. `null` when no closed rows. */
   avgHandlingDays: number | null;
-  bySeverity: SeverityBucket[];
-  byStatus: StatusBucket[];
+  /** Dict keyed by Severity so the FE can do `bySeverity[s]` direct lookups. */
+  bySeverity: Record<Severity, number>;
+  byStatus: Record<TicketStatus, number>;
   byDepartment: DepartmentBucket[];
   byCategory: CategoryBucket[];
 }
+
+const ZERO_SEVERITY: Record<Severity, number> = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+const ZERO_STATUS: Record<TicketStatus, number> = {
+  Pending: 0,
+  Assigned: 0,
+  InProgress: 0,
+  Redirected: 0,
+  Closed: 0,
+};
 
 interface AvgRow {
   avg: number | null;
@@ -91,13 +94,19 @@ export const AnalyticsService = {
       const deptName = new Map(deptRows.map((d) => [d.id, d.name]));
       const catName = new Map(catRows.map((c) => [c.id, c.name]));
 
+      // Convert the groupBy arrays into dicts so FE can do `byStatus[s]` lookups.
+      const sevMap: Record<Severity, number> = { ...ZERO_SEVERITY };
+      for (const b of bySeverity) sevMap[b.severity] = b._count._all;
+      const statusMap: Record<TicketStatus, number> = { ...ZERO_STATUS };
+      for (const b of byStatus) statusMap[b.status] = b._count._all;
+
       return {
         total,
         open: total - closed,
         closed,
         avgHandlingDays: avgRows[0]?.avg ?? null,
-        bySeverity: bySeverity.map((b) => ({ severity: b.severity, count: b._count._all })),
-        byStatus: byStatus.map((b) => ({ status: b.status, count: b._count._all })),
+        bySeverity: sevMap,
+        byStatus: statusMap,
         byDepartment: byDept
           .filter((b) => b.routedDepartmentId !== null)
           .map((b) => ({
