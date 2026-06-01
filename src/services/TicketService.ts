@@ -171,7 +171,8 @@ export const TicketService = {
   async getHistory(id: string, caller: SessionUser) {
     const ticket = await prisma.ticket.findUnique({
       where: { id },
-      select: { requesterId: true, routedDepartmentId: true },
+      // helpdeskAssigneeId is required for the HelpdeskAgent personal-queue check.
+      select: { requesterId: true, routedDepartmentId: true, helpdeskAssigneeId: true },
     });
     if (!ticket) throw new NotFoundError('Không tìm thấy ticket');
     assertCanViewTicket(caller, ticket);
