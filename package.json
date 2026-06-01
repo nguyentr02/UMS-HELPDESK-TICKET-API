@@ -11,6 +11,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "worker": "tsx watch src/worker.ts",
     "build": "tsc --noEmit",

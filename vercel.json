@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "prisma generate && tsc -p tsconfig.build.json",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
-  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
   "crons": [
     {
       "path": "/jobs/daily-reminder",
