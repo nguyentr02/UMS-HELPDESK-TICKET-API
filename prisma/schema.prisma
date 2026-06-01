@@ -44,6 +44,8 @@ enum NotificationType {
   TicketAssigned
   TicketForwarded
   StatusChanged
+  TicketCreated
+  TicketCommented
 }
 
 enum EventType {

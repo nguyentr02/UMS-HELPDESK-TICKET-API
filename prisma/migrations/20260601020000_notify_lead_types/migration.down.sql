@@ -1,0 +1,5 @@
+-- Postgres can't drop a single enum value once it's been used. The supported
+-- rollback is to recreate the enum without the new values via a full
+-- TYPE swap (USING-cast every column that references it). Left as a manual
+-- step rather than encoded here; in practice the additive change is
+-- forward-only.

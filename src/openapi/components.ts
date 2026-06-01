@@ -35,6 +35,8 @@ const ENUM_NOTIF = [
   'TicketAssigned',
   'TicketForwarded',
   'StatusChanged',
+  'TicketCreated',
+  'TicketCommented',
 ] as const;
 const ENUM_KIND = ['Image', 'Document'] as const;
 const ENUM_EVENT = [

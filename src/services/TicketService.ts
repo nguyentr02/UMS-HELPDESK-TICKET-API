@@ -110,6 +110,23 @@ export const TicketService = {
           },
         });
       }
+      // Fan-out to every active HelpdeskLead so they see new tickets in their
+      // inbox (excluding the caller themselves on the off chance a Lead made
+      // the ticket — they don't need to notify themselves).
+      const leads = await tx.user.findMany({
+        where: { role: 'HelpdeskLead', isActive: true, NOT: { id: caller.id } },
+        select: { id: true },
+      });
+      for (const l of leads) {
+        await tx.notification.create({
+          data: {
+            userId: l.id,
+            type: 'TicketCreated',
+            ticketId: ticket.id,
+            payload: { ticketCode: code, requesterId: caller.id, severity: input.severity },
+          },
+        });
+      }
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticket.id },
         include: TICKET_INCLUDE,
@@ -474,6 +491,24 @@ export const TicketService = {
           type: 'Commented',
         },
       });
+
+      // Fan-out to every active HelpdeskLead. A comment can come from
+      // requester/agent/staff — Lead is the only role we always notify.
+      // (If the comment was made by a Lead themselves, skip them.)
+      const leads = await tx.user.findMany({
+        where: { role: 'HelpdeskLead', isActive: true, NOT: { id: caller.id } },
+        select: { id: true },
+      });
+      for (const l of leads) {
+        await tx.notification.create({
+          data: {
+            userId: l.id,
+            type: 'TicketCommented',
+            ticketId,
+            payload: { ticketCode: ticket.code, authorId: caller.id, commentId: comment.id },
+          },
+        });
+      }
 
       return tx.ticketComment.findUniqueOrThrow({
         where: { id: comment.id },
