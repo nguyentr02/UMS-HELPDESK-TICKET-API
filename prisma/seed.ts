@@ -20,6 +20,27 @@ const CATEGORIES = [
   { name: 'Khác', routeTo: null }, // no default routing — Helpdesk decides
 ] as const;
 
+// Mock SSO identities (mirrors FE lib/auth/session.tsx MOCK_IDENTITIES). Seeded
+// so the agent/dept-staff dropdowns are populated *before* anyone has actually
+// logged in — otherwise `GET /agents` only lists users who happened to hit the
+// API while authenticated. `deptCode` is resolved to the real cuid at seed time.
+type Role = 'SV' | 'GV' | 'NV' | 'HelpdeskLead' | 'HelpdeskAgent' | 'DeptStaff' | 'Admin';
+const USERS: Array<{ id: string; displayName: string; role: Role; deptCode: string | null }> = [
+  { id: 'u-sv-1', displayName: 'SV Nguyễn Văn A', role: 'SV', deptCode: null },
+  { id: 'u-sv-2', displayName: 'SV Phạm Thị D', role: 'SV', deptCode: null },
+  { id: 'u-gv-1', displayName: 'GV Trần Văn B', role: 'GV', deptCode: null },
+  { id: 'u-gv-2', displayName: 'GV Hoàng Văn E', role: 'GV', deptCode: null },
+  { id: 'u-nv-1', displayName: 'NV Lê Văn C', role: 'NV', deptCode: null },
+  { id: 'u-nv-2', displayName: 'NV Bùi Thị F', role: 'NV', deptCode: null },
+  { id: 'u-hda', displayName: 'Đỗ Thị Mai', role: 'HelpdeskAgent', deptCode: null },
+  { id: 'u-hda-2', displayName: 'Nguyễn Văn Quân', role: 'HelpdeskAgent', deptCode: null },
+  { id: 'u-hdl', displayName: 'Vũ Văn Hùng', role: 'HelpdeskLead', deptCode: null },
+  { id: 'u-staff', displayName: 'Phan Thị Hương (CSVC)', role: 'DeptStaff', deptCode: 'CSVC' },
+  { id: 'u-staff-hcns', displayName: 'Lương Văn Đức (HCNS)', role: 'DeptStaff', deptCode: 'HCNS' },
+  { id: 'u-staff-dt', displayName: 'Trịnh Thị Lan (Đào tạo)', role: 'DeptStaff', deptCode: 'DT-CTSV' },
+  { id: 'u-admin', displayName: 'Quản trị viên', role: 'Admin', deptCode: null },
+];
+
 export interface SeedCounts {
   departments: number;
   categories: number;
@@ -65,6 +86,30 @@ export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
         });
       }
     }
+  }
+
+  // ─── Mock SSO identities ───
+  // Build a code→id map for dept-scoped staff users.
+  const deptRows = await prisma.department.findMany({ select: { id: true, code: true } });
+  const deptByCode = new Map(deptRows.map((d) => [d.code, d.id]));
+  for (const u of USERS) {
+    const departmentId = u.deptCode ? deptByCode.get(u.deptCode) ?? null : null;
+    await prisma.user.upsert({
+      where: { id: u.id },
+      create: {
+        id: u.id,
+        ssoSubject: `mock:${u.id}`,
+        email: `${u.id}@mock.local`,
+        displayName: u.displayName,
+        role: u.role,
+        departmentId,
+      },
+      update: {
+        displayName: u.displayName,
+        role: u.role,
+        departmentId,
+      },
+    });
   }
 
   return {
