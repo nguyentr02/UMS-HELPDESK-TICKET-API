@@ -1,6 +1,6 @@
 import type { OpenAPIV3 } from 'openapi-types';
-import { responses, schemas, securitySchemes } from './components';
-import { paths } from './paths';
+import { responses, schemas, securitySchemes } from './components.js';
+import { paths } from './paths.js';
 
 export const openApiSpec: OpenAPIV3.Document = {
   openapi: '3.0.3',

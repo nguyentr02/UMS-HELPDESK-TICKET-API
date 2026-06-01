@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ok } from '../lib/envelope';
+import { ok } from '../lib/envelope.js';
 
 export const healthzRouter = Router();
 

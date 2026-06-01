@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ok } from '../lib/envelope';
-import { asyncHandler } from '../lib/asyncHandler';
-import { requireAuth } from '../middleware/auth';
-import { requireRole } from '../middleware/rbac';
-import { zodValidate } from '../middleware/zodValidate';
-import { RoutingService } from '../services/RoutingService';
+import { ok } from '../lib/envelope.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
+import { requireAuth } from '../middleware/auth.js';
+import { requireRole } from '../middleware/rbac.js';
+import { zodValidate } from '../middleware/zodValidate.js';
+import { RoutingService } from '../services/RoutingService.js';
 
 const createBody = z.object({
   categoryId: z.string().min(1),

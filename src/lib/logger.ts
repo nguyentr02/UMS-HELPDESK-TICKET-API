@@ -1,5 +1,5 @@
 import pino, { type LoggerOptions } from 'pino';
-import { env } from '../config/env';
+import { env } from '../config/env.js';
 
 const usePretty = env.NODE_ENV === 'development';
 

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
-import { env } from '../config/env';
-import { UnauthenticatedError } from '../lib/errors';
+import { env } from '../config/env.js';
+import { UnauthenticatedError } from '../lib/errors.js';
 
 export type Role =
   | 'SV'

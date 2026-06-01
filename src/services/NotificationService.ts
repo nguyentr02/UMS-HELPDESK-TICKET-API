@@ -1,7 +1,7 @@
-import { prisma } from '../lib/prisma';
-import { ForbiddenError, NotFoundError } from '../lib/errors';
-import type { SessionUser } from '../middleware/auth';
-import { UserService } from './UserService';
+import { prisma } from '../lib/prisma.js';
+import { ForbiddenError, NotFoundError } from '../lib/errors.js';
+import type { SessionUser } from '../middleware/auth.js';
+import { UserService } from './UserService.js';
 
 export interface ListQuery {
   page?: number;

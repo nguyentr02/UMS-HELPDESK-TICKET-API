@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { ok } from '../lib/envelope';
-import { asyncHandler } from '../lib/asyncHandler';
-import { requireAuth } from '../middleware/auth';
-import { NotificationService } from '../services/NotificationService';
+import { ok } from '../lib/envelope.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
+import { requireAuth } from '../middleware/auth.js';
+import { NotificationService } from '../services/NotificationService.js';
 
 export const notificationsRouter = Router();
 

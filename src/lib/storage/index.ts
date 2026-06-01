@@ -1,11 +1,11 @@
-import { env } from '../../config/env';
-import { LocalDiskAdapter } from './local';
-import { MemoryAdapter } from './memory';
-import { VercelBlobAdapter } from './blob';
-import type { StorageAdapter } from './types';
+import { env } from '../../config/env.js';
+import { LocalDiskAdapter } from './local.js';
+import { MemoryAdapter } from './memory.js';
+import { VercelBlobAdapter } from './blob.js';
+import type { StorageAdapter } from './types.js';
 
-export type { IncomingFile, StorageAdapter, UploadResult } from './types';
-export { kindFromMime } from './types';
+export type { IncomingFile, StorageAdapter, UploadResult } from './types.js';
+export { kindFromMime } from './types.js';
 
 let cached: StorageAdapter | null = null;
 

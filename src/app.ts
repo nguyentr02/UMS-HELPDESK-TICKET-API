@@ -2,22 +2,22 @@ import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
-import { env } from './config/env';
-import { logger } from './lib/logger';
-import { fail, ok } from './lib/envelope';
-import { NotFoundError } from './lib/errors';
-import { requestIdMiddleware } from './middleware/requestId';
-import { authMiddleware, requireAuth } from './middleware/auth';
-import { requireRole } from './middleware/rbac';
-import { errorMiddleware } from './middleware/error';
-import { healthzRouter } from './routes/healthz';
-import { docsRouter } from './routes/docs';
-import { categoriesRouter } from './routes/categories';
-import { routingRulesRouter } from './routes/routingRules';
-import { ticketsRouter } from './routes/tickets';
-import { notificationsRouter } from './routes/notifications';
-import { jobsRouter } from './routes/jobs';
-import { analyticsRouter } from './routes/analytics';
+import { env } from './config/env.js';
+import { logger } from './lib/logger.js';
+import { fail, ok } from './lib/envelope.js';
+import { NotFoundError } from './lib/errors.js';
+import { requestIdMiddleware } from './middleware/requestId.js';
+import { authMiddleware, requireAuth } from './middleware/auth.js';
+import { requireRole } from './middleware/rbac.js';
+import { errorMiddleware } from './middleware/error.js';
+import { healthzRouter } from './routes/healthz.js';
+import { docsRouter } from './routes/docs.js';
+import { categoriesRouter } from './routes/categories.js';
+import { routingRulesRouter } from './routes/routingRules.js';
+import { ticketsRouter } from './routes/tickets.js';
+import { notificationsRouter } from './routes/notifications.js';
+import { jobsRouter } from './routes/jobs.js';
+import { analyticsRouter } from './routes/analytics.js';
 
 /**
  * Build the Express app. Exported as a factory so supertest tests can spin up

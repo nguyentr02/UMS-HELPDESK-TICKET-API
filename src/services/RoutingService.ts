@@ -1,5 +1,5 @@
-import { prisma } from '../lib/prisma';
-import { NotFoundError, ValidationError } from '../lib/errors';
+import { prisma } from '../lib/prisma.js';
+import { NotFoundError, ValidationError } from '../lib/errors.js';
 
 export interface CreateRoutingInput {
   categoryId: string;

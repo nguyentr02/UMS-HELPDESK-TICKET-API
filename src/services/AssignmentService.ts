@@ -1,8 +1,8 @@
-import { prisma } from '../lib/prisma';
-import { ConflictError, NotFoundError, ValidationError } from '../lib/errors';
-import { assertCanPerform, TRANSITIONS } from '../lib/transitions';
-import type { SessionUser } from '../middleware/auth';
-import { UserService } from './UserService';
+import { prisma } from '../lib/prisma.js';
+import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
+import { assertCanPerform, TRANSITIONS } from '../lib/transitions.js';
+import type { SessionUser } from '../middleware/auth.js';
+import { UserService } from './UserService.js';
 
 export const AssignmentService = {
   /**

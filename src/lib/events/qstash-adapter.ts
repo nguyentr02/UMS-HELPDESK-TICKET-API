@@ -1,4 +1,4 @@
-import type { EventPublisher, TicketClosedEvent, TicketCreatedEvent } from './publisher';
+import type { EventPublisher, TicketClosedEvent, TicketCreatedEvent } from './publisher.js';
 
 /**
  * Production publisher stub. Real impl would POST to Upstash QStash with the

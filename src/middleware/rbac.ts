@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
-import { ForbiddenError, UnauthenticatedError } from '../lib/errors';
-import type { Role } from './auth';
+import { ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
+import type { Role } from './auth.js';
 
 /** Allow only callers whose role is in the given set. */
 export function requireRole(...allowed: Role[]) {

@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import multer from 'multer';
-import { AppError } from '../lib/errors';
+import { AppError } from '../lib/errors.js';
 
 const FIELD = 'attachments';
 const MAX_FILES = 10;

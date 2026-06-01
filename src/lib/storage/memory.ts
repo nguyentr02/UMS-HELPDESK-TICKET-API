@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { createId } from '@paralleldrive/cuid2';
-import { NotFoundError } from '../errors';
-import type { IncomingFile, StorageAdapter, UploadResult } from './types';
+import { NotFoundError } from '../errors.js';
+import type { IncomingFile, StorageAdapter, UploadResult } from './types.js';
 
 const store = new Map<string, Buffer>();
 

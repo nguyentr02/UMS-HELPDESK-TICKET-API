@@ -1,6 +1,6 @@
 import type { Role, TicketStatus } from '@prisma/client';
-import type { SessionUser } from '../middleware/auth';
-import { ForbiddenError } from './errors';
+import type { SessionUser } from '../middleware/auth.js';
+import { ForbiddenError } from './errors.js';
 
 export type TransitionKey =
   | 'assign'

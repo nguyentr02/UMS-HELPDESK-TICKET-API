@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { env } from '../config/env';
+import { env } from '../config/env.js';
 
 // Hot-reload-safe singleton: tsx --watch re-imports modules, which would
 // otherwise spawn a new PrismaClient per change and exhaust DB connections.

@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
-import { fail } from '../lib/envelope';
-import { AppError } from '../lib/errors';
-import { logger } from '../lib/logger';
+import { fail } from '../lib/envelope.js';
+import { AppError } from '../lib/errors.js';
+import { logger } from '../lib/logger.js';
 
 /** Final error handler. Shapes every thrown error into the envelope. */
 export const errorMiddleware: ErrorRequestHandler = (err, req, res, _next) => {

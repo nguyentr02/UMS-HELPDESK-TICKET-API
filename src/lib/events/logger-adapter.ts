@@ -1,5 +1,5 @@
-import { logger } from '../logger';
-import type { EventPublisher, TicketClosedEvent, TicketCreatedEvent } from './publisher';
+import { logger } from '../logger.js';
+import type { EventPublisher, TicketClosedEvent, TicketCreatedEvent } from './publisher.js';
 
 /** Dev / test default — records each event to the pino logger. */
 export class LoggerEventPublisher implements EventPublisher {

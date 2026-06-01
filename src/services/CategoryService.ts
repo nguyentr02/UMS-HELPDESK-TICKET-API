@@ -1,5 +1,5 @@
-import { prisma } from '../lib/prisma';
-import { ConflictError, NotFoundError, ValidationError } from '../lib/errors';
+import { prisma } from '../lib/prisma.js';
+import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 
 export interface CreateCategoryInput {
   name: string;

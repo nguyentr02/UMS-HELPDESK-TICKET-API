@@ -1,8 +1,8 @@
-import { prisma } from '../lib/prisma';
-import { NotFoundError } from '../lib/errors';
-import { assertCanViewTicket } from '../lib/scoping';
-import { getStorage } from '../lib/storage';
-import type { SessionUser } from '../middleware/auth';
+import { prisma } from '../lib/prisma.js';
+import { NotFoundError } from '../lib/errors.js';
+import { assertCanViewTicket } from '../lib/scoping.js';
+import { getStorage } from '../lib/storage/index.js';
+import type { SessionUser } from '../middleware/auth.js';
 
 export const AttachmentService = {
   async download(id: string, caller: SessionUser) {

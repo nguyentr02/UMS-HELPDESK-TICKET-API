@@ -1,6 +1,6 @@
-import { prisma } from '../lib/prisma';
-import { formatDateKey, isHolidaySkip } from '../lib/calendar';
-import { defaultDedupe, type ReminderDedupe } from '../lib/dedupe';
+import { prisma } from '../lib/prisma.js';
+import { formatDateKey, isHolidaySkip } from '../lib/calendar.js';
+import { defaultDedupe, type ReminderDedupe } from '../lib/dedupe.js';
 
 const BACKLOG_STATUSES = ['Pending', 'Assigned', 'Redirected'] as const;
 const MS_PER_DAY = 86_400_000;

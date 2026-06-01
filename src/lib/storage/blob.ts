@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
-import { NotFoundError } from '../errors';
-import type { IncomingFile, StorageAdapter, UploadResult } from './types';
+import { NotFoundError } from '../errors.js';
+import type { IncomingFile, StorageAdapter, UploadResult } from './types.js';
 
 /**
  * Production adapter — chosen for FP §K open item: **Vercel Blob**.

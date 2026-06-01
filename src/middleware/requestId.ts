@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { newRequestId } from '../lib/envelope';
+import { newRequestId } from '../lib/envelope.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace

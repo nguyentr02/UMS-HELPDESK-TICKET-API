@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { env } from '../config/env';
-import { ok } from '../lib/envelope';
-import { ForbiddenError } from '../lib/errors';
-import { asyncHandler } from '../lib/asyncHandler';
-import { runDailyReminder } from '../jobs/daily-reminder';
+import { env } from '../config/env.js';
+import { ok } from '../lib/envelope.js';
+import { ForbiddenError } from '../lib/errors.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
+import { runDailyReminder } from '../jobs/daily-reminder.js';
 
 export const jobsRouter = Router();
 

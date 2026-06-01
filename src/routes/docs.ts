@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
-import { openApiSpec } from '../openapi/spec';
+import { openApiSpec } from '../openapi/spec.js';
 
 export const docsRouter = Router();
 

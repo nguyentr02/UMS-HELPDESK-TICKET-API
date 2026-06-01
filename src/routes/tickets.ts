@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ok } from '../lib/envelope';
-import { asyncHandler } from '../lib/asyncHandler';
-import { requireAuth } from '../middleware/auth';
-import { uploadAttachments } from '../middleware/upload';
-import { zodValidate } from '../middleware/zodValidate';
-import { TicketService } from '../services/TicketService';
-import { AssignmentService } from '../services/AssignmentService';
-import { AttachmentService } from '../services/AttachmentService';
+import { ok } from '../lib/envelope.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
+import { requireAuth } from '../middleware/auth.js';
+import { uploadAttachments } from '../middleware/upload.js';
+import { zodValidate } from '../middleware/zodValidate.js';
+import { TicketService } from '../services/TicketService.js';
+import { AssignmentService } from '../services/AssignmentService.js';
+import { AttachmentService } from '../services/AttachmentService.js';
 
 const SEVERITY = ['Critical', 'High', 'Medium', 'Low'] as const;
 

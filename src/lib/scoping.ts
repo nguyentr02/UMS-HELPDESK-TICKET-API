@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
-import type { SessionUser } from '../middleware/auth';
-import { ForbiddenError } from './errors';
+import type { SessionUser } from '../middleware/auth.js';
+import { ForbiddenError } from './errors.js';
 
 /**
  * Server-derived where-clause for ticket lists. Never trust a client-supplied

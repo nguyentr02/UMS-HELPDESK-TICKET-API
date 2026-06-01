@@ -1,8 +1,8 @@
 import type { Severity } from '@prisma/client';
-import { env } from '../../config/env';
-import { logger } from '../logger';
-import { LoggerEventPublisher } from './logger-adapter';
-import { QStashEventPublisher } from './qstash-adapter';
+import { env } from '../../config/env.js';
+import { logger } from '../logger.js';
+import { LoggerEventPublisher } from './logger-adapter.js';
+import { QStashEventPublisher } from './qstash-adapter.js';
 
 export interface TicketCreatedEvent {
   type: 'ticketCreated';

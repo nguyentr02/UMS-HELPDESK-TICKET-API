@@ -1,13 +1,13 @@
 import type { Prisma, Severity, TicketStatus } from '@prisma/client';
-import { prisma } from '../lib/prisma';
-import { ConflictError, NotFoundError, ValidationError } from '../lib/errors';
-import { nextTicketCode } from '../lib/ids';
-import { assertCanViewTicket, ticketWhereForCaller } from '../lib/scoping';
-import { getStorage, kindFromMime, type IncomingFile } from '../lib/storage';
-import type { SessionUser } from '../middleware/auth';
-import { assertCanPerform, TRANSITIONS } from '../lib/transitions';
-import { safePublishClosed, safePublishCreated } from '../lib/events/publisher';
-import { UserService } from './UserService';
+import { prisma } from '../lib/prisma.js';
+import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
+import { nextTicketCode } from '../lib/ids.js';
+import { assertCanViewTicket, ticketWhereForCaller } from '../lib/scoping.js';
+import { getStorage, kindFromMime, type IncomingFile } from '../lib/storage/index.js';
+import type { SessionUser } from '../middleware/auth.js';
+import { assertCanPerform, TRANSITIONS } from '../lib/transitions.js';
+import { safePublishClosed, safePublishCreated } from '../lib/events/publisher.js';
+import { UserService } from './UserService.js';
 
 const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'Redirected'];
 const STATUS_VALID: readonly TicketStatus[] = [...STATUS_OPEN, 'Closed'];
