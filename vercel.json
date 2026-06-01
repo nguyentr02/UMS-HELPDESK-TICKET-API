@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "echo 'serverless-only build — no static output'",
+  "outputDirectory": ".",
   "functions": {
     "api/index.ts": {
       "memory": 1024,
