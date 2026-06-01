@@ -1,5 +1,9 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // `native` for the dev machine; `rhel-openssl-3.0.x` for Vercel's Lambda
+  // runtime (Amazon Linux 2023 + OpenSSL 3). Without the latter, the query
+  // engine binary is missing on cold start and `new PrismaClient()` throws.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

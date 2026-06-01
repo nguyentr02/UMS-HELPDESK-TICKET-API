@@ -12,6 +12,7 @@
   },
   "scripts": {
     "postinstall": "prisma generate",
+    "vercel-build": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "worker": "tsx watch src/worker.ts",
     "build": "tsc --noEmit",
