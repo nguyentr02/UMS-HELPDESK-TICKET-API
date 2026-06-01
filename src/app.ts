@@ -34,7 +34,23 @@ export function buildApp(): Express {
   app.use(requestIdMiddleware);
   app.use(pinoHttp({ logger, customLogLevel: (_req, res) => (res.statusCode >= 500 ? 'error' : 'info') }));
   app.use(cors());
-  app.use(helmet());
+  // Helmet with CSP that allows the Swagger UI CDN (jsdelivr) for /docs.
+  // JSON endpoints don't load scripts/styles so the relaxations are inert
+  // outside the docs page.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          'default-src': ["'self'"],
+          'script-src': ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+          'style-src': ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+          'img-src': ["'self'", 'data:', 'https://cdn.jsdelivr.net'],
+          'font-src': ["'self'", 'https://cdn.jsdelivr.net'],
+          'connect-src': ["'self'"],
+        },
+      },
+    }),
+  );
   app.use(express.json({ limit: '1mb' }));
 
   // Healthz is public AND unaffected by the kill-switch — monitoring stays alive.
