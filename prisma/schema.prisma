@@ -1,0 +1,247 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────── Enums (PascalCase values per FP §E) ───────────
+
+enum Severity {
+  Critical
+  High
+  Medium
+  Low
+}
+
+enum TicketStatus {
+  Pending
+  Assigned
+  InProgress
+  Redirected
+  Closed
+}
+
+enum Role {
+  SV
+  GV
+  NV
+  HelpdeskLead
+  HelpdeskAgent
+  DeptStaff
+  Admin
+}
+
+enum NotificationType {
+  TicketClosed
+  DailyReminder
+  TicketAssigned
+  TicketForwarded
+  StatusChanged
+}
+
+enum EventType {
+  Created
+  AgentAssigned
+  Forwarded
+  Started
+  Redirected
+  SeverityChanged
+  Commented
+  Closed
+}
+
+enum AttachmentKind {
+  Image
+  Document
+}
+
+// ─────────── Models ───────────
+
+model User {
+  id           String  @id @default(cuid())
+  ssoSubject   String  @unique
+  email        String  @unique
+  displayName  String
+  role         Role
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Inverse relations
+  ticketsRequested Ticket[]        @relation("TicketRequester")
+  ticketsAssigned  Ticket[]        @relation("TicketAssignee")
+  comments         TicketComment[]
+  uploads          Attachment[]
+  events           TicketEvent[]
+  notifications    Notification[]
+
+  @@map("users")
+}
+
+model Department {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  users         User[]
+  routedTickets Ticket[]      @relation("TicketRoutedDept")
+  routingRules  RoutingRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("departments")
+}
+
+model Category {
+  id       String  @id @default(cuid())
+  name     String
+  parentId String?
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryParent")
+  isActive Boolean    @default(true)
+
+  tickets      Ticket[]
+  routingRules RoutingRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, parentId])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model RoutingRule {
+  id           String  @id @default(cuid())
+  categoryId   String
+  departmentId String
+  isDefault    Boolean @default(false)
+
+  category   Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryId, departmentId])
+  @@index([categoryId])
+  @@map("routing_rules")
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  title       String
+  description String
+  severity    Severity
+  status      TicketStatus @default(Pending)
+
+  requesterId String
+  requester   User @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  helpdeskAssigneeId String?
+  helpdeskAssignee   User?   @relation("TicketAssignee", fields: [helpdeskAssigneeId], references: [id], onDelete: SetNull)
+
+  routedDepartmentId String?
+  routedDepartment   Department? @relation("TicketRoutedDept", fields: [routedDepartmentId], references: [id], onDelete: SetNull)
+
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  comments      TicketComment[]
+  attachments   Attachment[]
+  events        TicketEvent[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([helpdeskAssigneeId, status])
+  @@index([routedDepartmentId, status])
+  @@index([requesterId])
+  @@index([createdAt])
+  @@map("tickets")
+}
+
+model TicketComment {
+  id       String @id @default(cuid())
+  ticketId String
+  authorId String
+  body     String
+
+  createdAt DateTime @default(now())
+
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  attachments Attachment[]
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_comments")
+}
+
+model Attachment {
+  id         String         @id @default(cuid())
+  ticketId   String
+  commentId  String?
+  uploaderId String
+  filename   String
+  mimeType   String
+  kind       AttachmentKind
+  sizeBytes  Int
+  storageKey String
+
+  createdAt DateTime @default(now())
+
+  ticket   Ticket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  comment  TicketComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  uploader User           @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId])
+  @@map("attachments")
+}
+
+model TicketEvent {
+  id               String        @id @default(cuid())
+  ticketId         String
+  actorId          String
+  type             EventType
+  fromStatus       TicketStatus?
+  toStatus         TicketStatus?
+  fromDepartmentId String?
+  toDepartmentId   String?
+  note             String?
+
+  createdAt DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  User   @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_events")
+}
+
+model Notification {
+  id       String           @id @default(cuid())
+  userId   String
+  type     NotificationType
+  ticketId String?
+  payload  Json
+  readAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}

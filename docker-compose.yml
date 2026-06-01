@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: helpdesk-api-postgres
+    environment:
+      POSTGRES_USER: helpdesk
+      POSTGRES_PASSWORD: helpdesk
+      POSTGRES_DB: helpdesk
+    ports:
+      # 5433 to avoid clashing with feat-admission-plan's 5432
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U helpdesk -d helpdesk']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: helpdesk-api-redis
+    ports:
+      # 6380 to avoid clashing with feat-admission-plan's 6379
+      - '6380:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
