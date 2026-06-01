@@ -7,6 +7,14 @@ import { getStorage, kindFromMime, type IncomingFile } from '../lib/storage/inde
 import type { SessionUser } from '../middleware/auth.js';
 import { assertCanPerform, TRANSITIONS } from '../lib/transitions.js';
 import { safePublishClosed, safePublishCreated } from '../lib/events/publisher.js';
+import {
+  TICKET_COMMENT_INCLUDE,
+  TICKET_EVENT_INCLUDE,
+  TICKET_INCLUDE,
+  toTicketCommentDTO,
+  toTicketDTO,
+  toTicketEventDTO,
+} from '../lib/dto.js';
 import { UserService } from './UserService.js';
 
 const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'Redirected'];
@@ -104,7 +112,7 @@ export const TicketService = {
       }
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticket.id },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
     });
 
@@ -118,7 +126,7 @@ export const TicketService = {
       createdAt: created.createdAt,
     });
 
-    return created;
+    return toTicketDTO(created);
   },
 
   async list(query: ListQuery, caller: SessionUser) {
@@ -140,20 +148,24 @@ export const TicketService = {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
+        include: TICKET_INCLUDE,
       }),
     ]);
 
-    return { items, page, pageSize, total };
+    return {
+      items: items.map(toTicketDTO),
+      page: { page, pageSize, total },
+    };
   },
 
   async getById(id: string, caller: SessionUser) {
     const ticket = await prisma.ticket.findUnique({
       where: { id },
-      include: { attachments: true, category: true },
+      include: TICKET_INCLUDE,
     });
     if (!ticket) throw new NotFoundError('Không tìm thấy ticket');
     assertCanViewTicket(caller, ticket);
-    return ticket;
+    return toTicketDTO(ticket);
   },
 
   async getHistory(id: string, caller: SessionUser) {
@@ -163,10 +175,12 @@ export const TicketService = {
     });
     if (!ticket) throw new NotFoundError('Không tìm thấy ticket');
     assertCanViewTicket(caller, ticket);
-    return prisma.ticketEvent.findMany({
+    const events = await prisma.ticketEvent.findMany({
       where: { ticketId: id },
       orderBy: { createdAt: 'asc' },
+      include: TICKET_EVENT_INCLUDE,
     });
+    return events.map(toTicketEventDTO);
   },
 
   // ─────────────── State-machine transitions (BE-S5) ───────────────
@@ -224,9 +238,9 @@ export const TicketService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
-    });
+    }).then(toTicketDTO);
   },
 
   async redirect(
@@ -289,9 +303,9 @@ export const TicketService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
-    });
+    }).then(toTicketDTO);
   },
 
   async startProgress(ticketId: string, caller: SessionUser) {
@@ -336,9 +350,9 @@ export const TicketService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
-    });
+    }).then(toTicketDTO);
   },
 
   async close(ticketId: string, reason: string | undefined, caller: SessionUser) {
@@ -385,7 +399,7 @@ export const TicketService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
     });
 
@@ -398,7 +412,7 @@ export const TicketService = {
       requesterId: closed.requesterId,
     });
 
-    return closed;
+    return toTicketDTO(closed);
   },
 
   async addComment(
@@ -462,9 +476,9 @@ export const TicketService = {
 
       return tx.ticketComment.findUniqueOrThrow({
         where: { id: comment.id },
-        include: { attachments: true },
+        include: TICKET_COMMENT_INCLUDE,
       });
-    });
+    }).then(toTicketCommentDTO);
   },
 
   async overrideSeverity(ticketId: string, severity: Severity, caller: SessionUser) {
@@ -501,8 +515,8 @@ export const TicketService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
-    });
+    }).then(toTicketDTO);
   },
 };

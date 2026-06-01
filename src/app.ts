@@ -18,6 +18,7 @@ import { ticketsRouter } from './routes/tickets.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { jobsRouter } from './routes/jobs.js';
 import { analyticsRouter } from './routes/analytics.js';
+import { refDataRouter } from './routes/refdata.js';
 
 /**
  * Build the Express app. Exported as a factory so supertest tests can spin up
@@ -93,6 +94,7 @@ export function buildApp(): Express {
   app.use(notificationsRouter);
   app.use(jobsRouter);
   app.use(analyticsRouter);
+  app.use(refDataRouter);
 
   // 404 fallback for unknown endpoints
   app.use((_req, _res, next) => next(new NotFoundError('Endpoint không tồn tại')));

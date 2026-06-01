@@ -89,7 +89,7 @@ describe('BE-S6 — Comments + attachments', () => {
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({
       ticketId: t.id,
-      authorId: 'u-sv-1',
+      author: { id: 'u-sv-1' },
       body: 'Đã thử restart router',
     });
     expect(res.body.data.attachments).toEqual([]);
@@ -108,7 +108,7 @@ describe('BE-S6 — Comments + attachments', () => {
       .set(s.staffHeaders)
       .field('body', 'Phòng CSVC đang kiểm tra');
     expect(res.status).toBe(201);
-    expect(res.body.data.authorId).toBe('u-staff-csvc');
+    expect(res.body.data.author.id).toBe('u-staff-csvc');
   });
 
   it('M31-BE-S6-E2: comment with an image attachment → Attachment.commentId set; GET /attachments/{id} returns the file', async () => {

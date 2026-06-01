@@ -16,15 +16,21 @@ interface TestSetup {
   staffHeaders: Record<string, string>;
 }
 
-interface ListResponse {
-  data: {
-    items: Array<{ id: string; type: string; userId: string; readAt: string | null; createdAt: string }>;
-    page: number;
-    pageSize: number;
-    total: number;
-    unreadCount: number;
-  };
+interface NotificationDTO {
+  id: string;
+  type: string;
+  ticketId: string | null;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
 }
+
+interface ListResponse {
+  data: NotificationDTO[];
+}
+
+const unreadCount = (items: NotificationDTO[]): number =>
+  items.filter((n) => n.readAt === null).length;
 
 async function setupUsers(): Promise<TestSetup> {
   const csvc = await prisma.department.findFirstOrThrow({ where: { code: 'CSVC' } });
@@ -87,9 +93,9 @@ describe('BE-S7 — In-app notifications', () => {
     const res = await request(app).get('/notifications').set(s.svHeaders);
     expect(res.status).toBe(200);
     const body = res.body as ListResponse;
-    expect(body.data.total).toBe(1);
-    expect(body.data.unreadCount).toBe(1);
-    expect(body.data.items[0]).toMatchObject({ type: 'TicketClosed', userId: 'u-sv-1', readAt: null });
+    expect(body.data).toHaveLength(1);
+    expect(unreadCount(body.data)).toBe(1);
+    expect(body.data[0]).toMatchObject({ type: 'TicketClosed', readAt: null });
   });
 
   it('M31-BE-S7-E1: on assign, TicketAssigned lands in the agent inbox', async () => {
@@ -102,8 +108,8 @@ describe('BE-S7 — In-app notifications', () => {
 
     const res = await request(app).get('/notifications').set(s.agent1Headers);
     const body = res.body as ListResponse;
-    expect(body.data.unreadCount).toBe(1);
-    expect(body.data.items[0]).toMatchObject({ type: 'TicketAssigned', userId: 'u-agent-1' });
+    expect(unreadCount(body.data)).toBe(1);
+    expect(body.data[0]).toMatchObject({ type: 'TicketAssigned' });
   });
 
   it('M31-BE-S7-E2: on forward, every DeptStaff in the target dept gets a TicketForwarded', async () => {
@@ -116,42 +122,37 @@ describe('BE-S7 — In-app notifications', () => {
 
     const res = await request(app).get('/notifications').set(s.staffHeaders);
     const body = res.body as ListResponse;
-    expect(body.data.items[0]).toMatchObject({ type: 'TicketForwarded', userId: 'u-staff-csvc' });
+    expect(body.data[0]).toMatchObject({ type: 'TicketForwarded' });
   });
 
   it('M31-BE-S7-E3: marking one read returns it but sorted after remaining unread', async () => {
-    // Two notifications for SV1: close ticket A, then close ticket B.
     const tA = await seedTicket();
     const tB = await seedTicket();
     await request(app).post(`/tickets/${tA.id}/close`).set(s.leadHeaders).send({}).expect(200);
     await request(app).post(`/tickets/${tB.id}/close`).set(s.leadHeaders).send({}).expect(200);
 
     const before = (await request(app).get('/notifications').set(s.svHeaders)).body as ListResponse;
-    expect(before.data.unreadCount).toBe(2);
-    // Newest unread first → close-of-B at index 0
-    const firstId = before.data.items[0]!.id;
+    expect(unreadCount(before.data)).toBe(2);
+    const firstId = before.data[0]!.id;
 
-    // Mark the first (newest unread) read.
     const marked = await request(app).post(`/notifications/${firstId}/read`).set(s.svHeaders);
     expect(marked.status).toBe(200);
     expect(marked.body.data.readAt).toBeTruthy();
 
     const after = (await request(app).get('/notifications').set(s.svHeaders)).body as ListResponse;
-    expect(after.data.unreadCount).toBe(1);
-    // The unread one comes first; the just-read one moves below it.
-    expect(after.data.items[0]?.readAt).toBeNull();
-    expect(after.data.items[1]?.id).toBe(firstId);
-    expect(after.data.items[1]?.readAt).not.toBeNull();
+    expect(unreadCount(after.data)).toBe(1);
+    expect(after.data[0]?.readAt).toBeNull();
+    expect(after.data[1]?.id).toBe(firstId);
+    expect(after.data[1]?.readAt).not.toBeNull();
   });
 
   it('M31-BE-S7-X1: GET /notifications scopes to the caller only', async () => {
     const t = await seedTicket('u-sv-1');
     await request(app).post(`/tickets/${t.id}/close`).set(s.leadHeaders).send({}).expect(200);
 
-    // SV2 has no notifications even though SV1 just got one.
     const sv2 = (await request(app).get('/notifications').set(s.sv2Headers)).body as ListResponse;
-    expect(sv2.data.total).toBe(0);
-    expect(sv2.data.unreadCount).toBe(0);
+    expect(sv2.data).toHaveLength(0);
+    expect(unreadCount(sv2.data)).toBe(0);
   });
 
   it("M31-BE-S7-X2: POST /notifications/:id/read on another user's notification → 403", async () => {
@@ -159,7 +160,7 @@ describe('BE-S7 — In-app notifications', () => {
     await request(app).post(`/tickets/${t.id}/close`).set(s.leadHeaders).send({}).expect(200);
 
     const list = (await request(app).get('/notifications').set(s.svHeaders)).body as ListResponse;
-    const notifId = list.data.items[0]!.id;
+    const notifId = list.data[0]!.id;
 
     const res = await request(app).post(`/notifications/${notifId}/read`).set(s.sv2Headers);
     expect(res.status).toBe(403);
@@ -171,13 +172,13 @@ describe('BE-S7 — In-app notifications', () => {
     await request(app).post(`/tickets/${t.id}/close`).set(s.leadHeaders).send({}).expect(200);
 
     const inbox = (await request(app).get('/notifications').set(s.svHeaders)).body as ListResponse;
-    expect(inbox.data.unreadCount).toBe(1);
-    const id = inbox.data.items[0]!.id;
+    expect(unreadCount(inbox.data)).toBe(1);
+    const id = inbox.data[0]!.id;
 
     await request(app).post(`/notifications/${id}/read`).set(s.svHeaders).expect(200);
 
     const after = (await request(app).get('/notifications').set(s.svHeaders)).body as ListResponse;
-    expect(after.data.unreadCount).toBe(0);
-    expect(after.data.total).toBe(1);
+    expect(unreadCount(after.data)).toBe(0);
+    expect(after.data).toHaveLength(1);
   });
 });

@@ -118,9 +118,9 @@ describe('BE-S10 — Analytics summary', () => {
     expect(res.body.data.closed).toBe(3);
     expect(res.body.data.open).toBe(4);
 
-    const byStatus = res.body.data.byStatus as Array<{ key: string; count: number }>;
-    const closedBucket = byStatus.find((b) => b.key === 'Closed');
-    const pendingBucket = byStatus.find((b) => b.key === 'Pending');
+    const byStatus = res.body.data.byStatus as Array<{ status: string; count: number }>;
+    const closedBucket = byStatus.find((b) => b.status === 'Closed');
+    const pendingBucket = byStatus.find((b) => b.status === 'Pending');
     expect(closedBucket?.count).toBe(3);
     expect(pendingBucket?.count).toBe(4);
 
@@ -155,18 +155,28 @@ describe('BE-S10 — Analytics summary', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(5);
 
-    const bySev = res.body.data.bySeverity as Array<{ key: string; count: number }>;
-    expect(bySev.find((b) => b.key === 'High')?.count).toBe(2);
-    expect(bySev.find((b) => b.key === 'Medium')?.count).toBe(3);
+    const bySev = res.body.data.bySeverity as Array<{ severity: string; count: number }>;
+    expect(bySev.find((b) => b.severity === 'High')?.count).toBe(2);
+    expect(bySev.find((b) => b.severity === 'Medium')?.count).toBe(3);
 
-    const byCat = res.body.data.byCategory as Array<{ key: string; count: number }>;
-    expect(byCat.find((b) => b.key === catIT.id)?.count).toBe(3);
-    expect(byCat.find((b) => b.key === catCSVC.id)?.count).toBe(2);
+    const byCat = res.body.data.byCategory as Array<{
+      categoryId: string;
+      name: string;
+      count: number;
+    }>;
+    expect(byCat.find((b) => b.categoryId === catIT.id)?.count).toBe(3);
+    expect(byCat.find((b) => b.categoryId === catCSVC.id)?.count).toBe(2);
+    expect(byCat.find((b) => b.categoryId === catIT.id)?.name).toBe(catIT.name);
 
-    const byDept = res.body.data.byDepartment as Array<{ key: string; count: number }>;
-    expect(byDept.find((b) => b.key === csvc.id)?.count).toBe(2);
-    expect(byDept.find((b) => b.key === hcns.id)?.count).toBe(2);
-    expect(byDept.find((b) => b.key === kt.id)?.count).toBe(1);
+    const byDept = res.body.data.byDepartment as Array<{
+      departmentId: string;
+      name: string;
+      count: number;
+    }>;
+    expect(byDept.find((b) => b.departmentId === csvc.id)?.count).toBe(2);
+    expect(byDept.find((b) => b.departmentId === hcns.id)?.count).toBe(2);
+    expect(byDept.find((b) => b.departmentId === kt.id)?.count).toBe(1);
+    expect(byDept.find((b) => b.departmentId === csvc.id)?.name).toBe(csvc.name);
   });
 
   it('M31-BE-S10-X2: aggregation pipeline failure → 500 with error.code="analytics_failed" (no stack leaked)', async () => {

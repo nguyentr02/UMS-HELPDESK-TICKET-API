@@ -93,7 +93,11 @@ describe('BE-S5 — State-machine transitions', () => {
       .send({ agentId: 'u-agent-1' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: t.id, helpdeskAssigneeId: 'u-agent-1', status: 'Pending' });
+    expect(res.body.data).toMatchObject({
+      id: t.id,
+      helpdeskAssignee: { id: 'u-agent-1' },
+      internalStatus: 'Pending',
+    });
 
     const events = await prisma.ticketEvent.findMany({ where: { ticketId: t.id } });
     expect(events).toHaveLength(1);
@@ -112,7 +116,11 @@ describe('BE-S5 — State-machine transitions', () => {
       .send({ departmentId: s.csvcDeptId });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: t.id, status: 'Assigned', routedDepartmentId: s.csvcDeptId });
+    expect(res.body.data).toMatchObject({
+      id: t.id,
+      internalStatus: 'Assigned',
+      routedDepartment: { id: s.csvcDeptId },
+    });
 
     const ev = await prisma.ticketEvent.findMany({ where: { ticketId: t.id } });
     expect(ev).toHaveLength(1);
@@ -133,7 +141,7 @@ describe('BE-S5 — State-machine transitions', () => {
     const res = await request(app).post(`/tickets/${t.id}/progress`).set(s.staffHeaders).send({});
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: t.id, status: 'InProgress' });
+    expect(res.body.data).toMatchObject({ id: t.id, internalStatus: 'InProgress' });
 
     const ev = await prisma.ticketEvent.findMany({ where: { ticketId: t.id } });
     expect(ev).toHaveLength(1);
@@ -148,7 +156,7 @@ describe('BE-S5 — State-machine transitions', () => {
     const res = await request(app).post(`/tickets/${t.id}/close`).set(s.leadHeaders).send({ reason: 'done' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: t.id, status: 'Closed' });
+    expect(res.body.data).toMatchObject({ id: t.id, internalStatus: 'Closed' });
     expect(res.body.data.closedAt).toBeTruthy();
 
     const ev = await prisma.ticketEvent.findMany({ where: { ticketId: t.id, type: 'Closed' } });
@@ -167,7 +175,7 @@ describe('BE-S5 — State-machine transitions', () => {
 
     const r2 = await request(app).post(`/tickets/${t.id}/assign`).set(s.leadHeaders).send({ agentId: 'u-agent-2' });
     expect(r2.status).toBe(200);
-    expect(r2.body.data.helpdeskAssigneeId).toBe('u-agent-2');
+    expect(r2.body.data.helpdeskAssignee.id).toBe('u-agent-2');
 
     const ev = await prisma.ticketEvent.findMany({ where: { ticketId: t.id, type: 'AgentAssigned' }, orderBy: { createdAt: 'asc' } });
     expect(ev).toHaveLength(2);
@@ -184,7 +192,11 @@ describe('BE-S5 — State-machine transitions', () => {
       .send({ departmentId: s.hcnsDeptId, reason: 'Chuyển sang HCNS' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ id: t.id, routedDepartmentId: s.hcnsDeptId, status: 'Assigned' });
+    expect(res.body.data).toMatchObject({
+      id: t.id,
+      routedDepartment: { id: s.hcnsDeptId },
+      internalStatus: 'Assigned',
+    });
 
     const ev = await prisma.ticketEvent.findFirstOrThrow({ where: { ticketId: t.id, type: 'Redirected' } });
     expect(ev).toMatchObject({

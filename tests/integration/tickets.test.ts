@@ -14,10 +14,13 @@ const leadHeaders = mockSsoHeaders({ id: 'u-lead-1', role: 'HelpdeskLead' });
 
 interface ListResponse {
   data: {
-    items: Array<{ id: string; code: string; status: TicketStatus; requesterId: string }>;
-    page: number;
-    pageSize: number;
-    total: number;
+    items: Array<{
+      id: string;
+      code: string;
+      internalStatus: TicketStatus;
+      requester: { id: string; displayName: string };
+    }>;
+    page: { page: number; pageSize: number; total: number };
   };
 }
 
@@ -74,8 +77,9 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     expect(t).toMatchObject({
       title: 'Mạng wifi không hoạt động',
       severity: 'High',
-      status: 'Pending',
-      requesterId: 'u-sv-1',
+      internalStatus: 'Pending',
+      externalStatus: 'Requested',
+      requester: { id: 'u-sv-1' },
     });
     expect(t.code).toMatch(/^HD-\d{4}-\d{6}$/);
     expect(t.attachments).toHaveLength(1);
@@ -98,12 +102,12 @@ describe('BE-S4 — Ticket create + list + detail', () => {
 
     const sv1List = (await request(app).get('/tickets').set(sv1Headers)).body as ListResponse;
     expect(sv1List.data.items).toHaveLength(1);
-    expect(sv1List.data.items[0]?.requesterId).toBe('u-sv-1');
-    expect(sv1List.data.total).toBe(1);
+    expect(sv1List.data.items[0]?.requester.id).toBe('u-sv-1');
+    expect(sv1List.data.page.total).toBe(1);
 
     const leadList = (await request(app).get('/tickets').set(leadHeaders)).body as ListResponse;
     expect(leadList.data.items).toHaveLength(2);
-    expect(leadList.data.total).toBe(2);
+    expect(leadList.data.page.total).toBe(2);
   });
 
   it('M31-BE-S4-E2: ?status=open returns the four non-Closed statuses', async () => {
@@ -123,8 +127,8 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     const res = await request(app).get('/tickets').query({ status: 'open' }).set(leadHeaders);
     const body = res.body as ListResponse;
     expect(res.status).toBe(200);
-    expect(body.data.total).toBe(4);
-    const got = body.data.items.map((t) => t.status).sort();
+    expect(body.data.page.total).toBe(4);
+    const got = body.data.items.map((t) => t.internalStatus).sort();
     expect(got).toEqual(['Assigned', 'InProgress', 'Pending', 'Redirected']);
   });
 
@@ -147,7 +151,7 @@ describe('BE-S4 — Ticket create + list + detail', () => {
       .set(leadHeaders);
     const body = res.body as ListResponse;
     expect(res.status).toBe(200);
-    expect(body.data.total).toBe(2);
+    expect(body.data.page.total).toBe(2);
     const codes = body.data.items.map((t) => t.code).sort();
     expect(codes).toEqual(['HD-2026-000001', 'HD-2026-000003']);
   });
@@ -165,9 +169,9 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     const body = res.body as ListResponse;
     expect(res.status).toBe(200);
     expect(body.data.items).toHaveLength(2);
-    expect(body.data.total).toBe(5);
-    expect(body.data.page).toBe(2);
-    expect(body.data.pageSize).toBe(2);
+    expect(body.data.page.total).toBe(5);
+    expect(body.data.page.page).toBe(2);
+    expect(body.data.page.pageSize).toBe(2);
   });
 
   it('M31-BE-S4-X1: POST /tickets missing severity → 422 fields.severity', async () => {
@@ -218,12 +222,12 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     expect(created.status).toBe(201);
 
     const sv1 = (await request(app).get('/tickets').set(sv1Headers)).body as ListResponse;
-    expect(sv1.data.total).toBe(1);
+    expect(sv1.data.page.total).toBe(1);
 
     const sv2 = (await request(app).get('/tickets').set(sv2Headers)).body as ListResponse;
-    expect(sv2.data.total).toBe(0);
+    expect(sv2.data.page.total).toBe(0);
 
     const lead = (await request(app).get('/tickets').set(leadHeaders)).body as ListResponse;
-    expect(lead.data.total).toBe(1);
+    expect(lead.data.page.total).toBe(1);
   });
 });

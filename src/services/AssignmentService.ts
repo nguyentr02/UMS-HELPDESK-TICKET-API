@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
+import { TICKET_INCLUDE, toTicketDTO } from '../lib/dto.js';
 import { assertCanPerform, TRANSITIONS } from '../lib/transitions.js';
 import type { SessionUser } from '../middleware/auth.js';
 import { UserService } from './UserService.js';
@@ -61,8 +62,8 @@ export const AssignmentService = {
 
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
-        include: { attachments: true, category: true },
+        include: TICKET_INCLUDE,
       });
-    });
+    }).then(toTicketDTO);
   },
 };

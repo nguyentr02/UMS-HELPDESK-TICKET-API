@@ -17,7 +17,13 @@ const redirectBody = z.object({
   departmentId: z.string().min(1),
   reason: z.string().trim().min(1).max(2000).optional(),
 });
-const closeBody = z.object({ reason: z.string().trim().min(1).max(2000).optional() });
+// FE sends `note`; legacy `reason` accepted too for the §8.3 spec example.
+const closeBody = z
+  .object({
+    note: z.string().trim().min(1).max(2000).optional(),
+    reason: z.string().trim().min(1).max(2000).optional(),
+  })
+  .transform((b) => ({ note: b.note ?? b.reason }));
 const severityBody = z.object({ severity: z.enum(SEVERITY) });
 const commentBody = z.object({
   body: z.string().trim().min(1, 'Nội dung bình luận không được rỗng').max(5000),
@@ -144,7 +150,7 @@ ticketsRouter.post(
   requireAuth,
   zodValidate(closeBody),
   asyncHandler(async (req, res) => {
-    const ticket = await TicketService.close(req.params.id, req.body.reason, req.user!);
+    const ticket = await TicketService.close(req.params.id, req.body.note, req.user!);
     res.json(ok(ticket, req.requestId));
   }),
 );

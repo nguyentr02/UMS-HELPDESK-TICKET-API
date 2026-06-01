@@ -8,8 +8,25 @@ export class AnalyticsFailedError extends AppError {
   }
 }
 
-export interface CountBucket {
-  key: string;
+export interface SeverityBucket {
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  count: number;
+}
+
+export interface StatusBucket {
+  status: 'Pending' | 'Assigned' | 'InProgress' | 'Redirected' | 'Closed';
+  count: number;
+}
+
+export interface DepartmentBucket {
+  departmentId: string;
+  name: string;
+  count: number;
+}
+
+export interface CategoryBucket {
+  categoryId: string;
+  name: string;
   count: number;
 }
 
@@ -19,10 +36,10 @@ export interface AnalyticsSummary {
   closed: number;
   /** Average days from createdAt → closedAt across closed tickets. `null` when no closed rows. */
   avgHandlingDays: number | null;
-  bySeverity: CountBucket[];
-  byStatus: CountBucket[];
-  byDepartment: CountBucket[];
-  byCategory: CountBucket[];
+  bySeverity: SeverityBucket[];
+  byStatus: StatusBucket[];
+  byDepartment: DepartmentBucket[];
+  byCategory: CategoryBucket[];
 }
 
 interface AvgRow {
@@ -56,19 +73,45 @@ export const AnalyticsService = {
           `,
         ]);
 
+      // Resolve dept + category names so the FE doesn't need a second hop.
+      const deptIds = byDept
+        .map((b) => b.routedDepartmentId)
+        .filter((id): id is string => id !== null);
+      const catIds = byCategory
+        .map((b) => b.categoryId)
+        .filter((id): id is string => id !== null);
+      const [deptRows, catRows] = await Promise.all([
+        deptIds.length
+          ? prisma.department.findMany({ where: { id: { in: deptIds } }, select: { id: true, name: true } })
+          : Promise.resolve([] as Array<{ id: string; name: string }>),
+        catIds.length
+          ? prisma.category.findMany({ where: { id: { in: catIds } }, select: { id: true, name: true } })
+          : Promise.resolve([] as Array<{ id: string; name: string }>),
+      ]);
+      const deptName = new Map(deptRows.map((d) => [d.id, d.name]));
+      const catName = new Map(catRows.map((c) => [c.id, c.name]));
+
       return {
         total,
         open: total - closed,
         closed,
         avgHandlingDays: avgRows[0]?.avg ?? null,
-        bySeverity: bySeverity.map((b) => ({ key: String(b.severity), count: b._count._all })),
-        byStatus: byStatus.map((b) => ({ key: String(b.status), count: b._count._all })),
+        bySeverity: bySeverity.map((b) => ({ severity: b.severity, count: b._count._all })),
+        byStatus: byStatus.map((b) => ({ status: b.status, count: b._count._all })),
         byDepartment: byDept
           .filter((b) => b.routedDepartmentId !== null)
-          .map((b) => ({ key: b.routedDepartmentId as string, count: b._count._all })),
+          .map((b) => ({
+            departmentId: b.routedDepartmentId as string,
+            name: deptName.get(b.routedDepartmentId as string) ?? '',
+            count: b._count._all,
+          })),
         byCategory: byCategory
           .filter((b) => b.categoryId !== null)
-          .map((b) => ({ key: b.categoryId as string, count: b._count._all })),
+          .map((b) => ({
+            categoryId: b.categoryId as string,
+            name: catName.get(b.categoryId as string) ?? '',
+            count: b._count._all,
+          })),
       };
     } catch (err) {
       // Don't leak the raw Prisma error to the client — log it and surface a
