@@ -15,6 +15,8 @@ export interface SessionUser {
   id: string;
   role: Role;
   departmentId: string | null;
+  /** Optional in mock mode — used to populate `User.displayName` on first ensure. */
+  displayName?: string;
 }
 
 declare global {
@@ -44,8 +46,17 @@ function readMockUser(req: Request): SessionUser | null {
   const id = req.header('x-mock-user-id');
   const role = req.header('x-mock-role');
   const dept = req.header('x-mock-dept-id');
+  const nameRaw = req.header('x-mock-display-name');
   if (!id || !isRole(role)) return null;
-  return { id, role, departmentId: dept ?? null };
+  let displayName: string | undefined;
+  if (nameRaw) {
+    try {
+      displayName = decodeURIComponent(nameRaw);
+    } catch {
+      displayName = nameRaw; // fall through if the FE didn't actually URL-encode it
+    }
+  }
+  return { id, role, departmentId: dept ?? null, displayName };
 }
 
 /** Attaches `req.user` if credentials are present. Does NOT enforce auth — that's `requireAuth`. */

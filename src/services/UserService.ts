@@ -25,17 +25,22 @@ export const UserService = {
       departmentId = dept ? dept.id : null;
     }
 
+    const displayName = session.displayName?.trim() || session.id;
+
     return client.user.upsert({
       where: { id: session.id },
       create: {
         id: session.id,
         ssoSubject: `mock:${session.id}`,
         email: `${session.id}@mock.local`,
-        displayName: session.id,
+        displayName,
         role: session.role,
         departmentId,
       },
       update: {
+        // Refresh on every login so a previously seeded row gets the real name
+        // the next time the same user makes a request.
+        displayName,
         role: session.role,
         departmentId,
       },
