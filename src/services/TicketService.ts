@@ -45,9 +45,28 @@ function parseSeverityFilter(value: string | undefined): Severity[] | undefined 
 export interface ListQuery {
   status?: string;
   severity?: string;
+  categoryId?: string;
+  assigneeId?: string;
+  /** Free-text search across title / description / code (case-insensitive). */
+  q?: string;
+  /**
+   * JSON:API-style sort key. Supported values (FE-defined in queue-filters.tsx):
+   *  - `-createdAt` (default, newest first)
+   *  - `createdAt`  (oldest first)
+   *  - `-severity`  (Critical → Low)
+   *  - `severity`   (Low → Critical)
+   */
+  sort?: string;
   page?: number;
   pageSize?: number;
 }
+
+const SEVERITY_RANK: Record<Severity, number> = {
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
+};
 
 /**
  * Pre-uploaded attachment metadata (direct-to-Blob flow). The browser uploaded
@@ -181,18 +200,66 @@ export const TicketService = {
     const pageSize = Math.max(1, Math.min(100, Math.floor(query.pageSize ?? 20)));
     const statusFilter = parseStatusFilter(query.status);
     const severityFilter = parseSeverityFilter(query.severity);
+    const search = query.q?.trim();
 
     const where: Prisma.TicketWhereInput = {
       ...ticketWhereForCaller(caller),
       ...(statusFilter ? { status: { in: statusFilter } } : {}),
       ...(severityFilter ? { severity: { in: severityFilter } } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.assigneeId ? { helpdeskAssigneeId: query.assigneeId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { title: { contains: search, mode: 'insensitive' as const } },
+              { description: { contains: search, mode: 'insensitive' as const } },
+              { code: { contains: search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
     };
+
+    const sort = query.sort ?? '-createdAt';
+
+    // Custom severity ranking can't be expressed via Prisma's orderBy (enum sorts
+    // alphabetically, which would put Medium before High). Load matching ids
+    // server-side, sort by our priority map, then refetch the page with full includes.
+    if (sort === '-severity' || sort === 'severity') {
+      const candidates = await prisma.ticket.findMany({
+        where,
+        select: { id: true, severity: true, createdAt: true },
+      });
+      candidates.sort((a, b) => {
+        const r = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+        if (r !== 0) return sort === '-severity' ? r : -r;
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
+      const total = candidates.length;
+      const pageIds = candidates
+        .slice((page - 1) * pageSize, page * pageSize)
+        .map((c) => c.id);
+      const items = await prisma.ticket.findMany({
+        where: { id: { in: pageIds } },
+        include: TICKET_INCLUDE,
+      });
+      const byId = new Map(items.map((t) => [t.id, t]));
+      const ordered = pageIds
+        .map((id) => byId.get(id))
+        .filter((t): t is (typeof items)[number] => !!t);
+      return {
+        items: ordered.map(toTicketDTO),
+        page: { page, pageSize, total },
+      };
+    }
+
+    const orderBy: Prisma.TicketOrderByWithRelationInput =
+      sort === 'createdAt' ? { createdAt: 'asc' } : { createdAt: 'desc' };
 
     const [total, items] = await Promise.all([
       prisma.ticket.count({ where }),
       prisma.ticket.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: TICKET_INCLUDE,

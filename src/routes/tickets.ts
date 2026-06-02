@@ -82,10 +82,15 @@ ticketsRouter.get(
   '/tickets',
   requireAuth,
   asyncHandler(async (req, res) => {
+    const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
     const result = await TicketService.list(
       {
-        status: typeof req.query.status === 'string' ? req.query.status : undefined,
-        severity: typeof req.query.severity === 'string' ? req.query.severity : undefined,
+        status: str(req.query.status),
+        severity: str(req.query.severity),
+        categoryId: str(req.query.categoryId),
+        assigneeId: str(req.query.assigneeId),
+        q: str(req.query.q),
+        sort: str(req.query.sort),
         page: req.query.page !== undefined ? Number(req.query.page) : undefined,
         pageSize: req.query.pageSize !== undefined ? Number(req.query.pageSize) : undefined,
       },
