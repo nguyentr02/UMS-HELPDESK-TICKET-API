@@ -20,6 +20,15 @@ notificationsRouter.get(
 );
 
 notificationsRouter.post(
+  '/notifications/read-all',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await NotificationService.markAllRead(req.user!);
+    res.json(ok(result, req.requestId));
+  }),
+);
+
+notificationsRouter.post(
   '/notifications/:id/read',
   requireAuth,
   asyncHandler(async (req, res) => {

@@ -39,6 +39,20 @@ export const NotificationService = {
     return items.map(toNotificationItemDTO);
   },
 
+  /**
+   * Bulk variant of markRead. Flips every unread notification owned by the
+   * caller to `readAt = now()` in one updateMany. Returns the affected count
+   * so the FE can confirm.
+   */
+  async markAllRead(caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+    const result = await prisma.notification.updateMany({
+      where: { userId: caller.id, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { updated: result.count };
+  },
+
   async markRead(id: string, caller: SessionUser) {
     await UserService.ensureFromSession(caller);
 
