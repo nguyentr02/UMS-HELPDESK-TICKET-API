@@ -660,6 +660,36 @@ export const TicketService = {
         },
       });
 
+      const payload = {
+        ticketCode: before.code,
+        fromSeverity: before.severity,
+        toSeverity: severity,
+      };
+
+      // Notify the requester — anything on their ticket should hit their inbox.
+      if (before.requesterId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.requesterId,
+            type: 'StatusChanged',
+            ticketId,
+            payload,
+          },
+        });
+      }
+
+      // Notify the assigned agent (if any, and not the actor).
+      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.helpdeskAssigneeId,
+            type: 'StatusChanged',
+            ticketId,
+            payload,
+          },
+        });
+      }
+
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
         include: TICKET_INCLUDE,
