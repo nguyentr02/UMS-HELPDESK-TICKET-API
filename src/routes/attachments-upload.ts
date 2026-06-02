@@ -46,7 +46,11 @@ attachmentsUploadRouter.post(
           // before any bytes leave the browser.
           allowedContentTypes: undefined, // any
           maximumSizeInBytes: 10 * 1024 * 1024,
-          addRandomSuffix: false,
+          // Let Vercel append a random tag so duplicate filenames don't
+          // collide (two uploads of the same screenshot.png both succeed
+          // as screenshot-AbCd1.png / screenshot-XyZ45.png). Count + size
+          // caps are still enforced — uniqueness is just removed.
+          addRandomSuffix: true,
         }),
         onUploadCompleted: async () => {
           /* no-op — the FE follows up with POST /tickets carrying the URL */
