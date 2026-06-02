@@ -28,6 +28,15 @@ notificationsRouter.post(
   }),
 );
 
+notificationsRouter.delete(
+  '/notifications',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await NotificationService.deleteAllForCaller(req.user!);
+    res.json(ok(result, req.requestId));
+  }),
+);
+
 notificationsRouter.post(
   '/notifications/:id/read',
   requireAuth,

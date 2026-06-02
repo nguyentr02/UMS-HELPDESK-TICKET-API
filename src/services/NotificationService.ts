@@ -53,6 +53,19 @@ export const NotificationService = {
     return { updated: result.count };
   },
 
+  /**
+   * Wipes the caller's inbox entirely (read + unread). The FE puts a confirm
+   * dialog in front of this since it's destructive and irreversible — the
+   * service itself is unconditional. Returns affected count for the toast.
+   */
+  async deleteAllForCaller(caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+    const result = await prisma.notification.deleteMany({
+      where: { userId: caller.id },
+    });
+    return { deleted: result.count };
+  },
+
   async markRead(id: string, caller: SessionUser) {
     await UserService.ensureFromSession(caller);
 
