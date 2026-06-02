@@ -24,9 +24,21 @@ const closeBody = z
     reason: z.string().trim().min(1).max(2000).optional(),
   })
   .transform((b) => ({ note: b.note ?? b.reason }));
+
+// Pre-uploaded attachment metadata (Vercel Blob direct-upload flow). The
+// browser uploads to Blob first, then posts the resulting URLs here so the
+// request body stays under Vercel's 4.5 MB function-body limit.
+const attachmentMetaSchema = z.object({
+  url: z.string().url(),
+  filename: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().min(1).max(127),
+  sizeBytes: z.number().int().nonnegative().max(10 * 1024 * 1024),
+});
+const attachmentsArraySchema = z.array(attachmentMetaSchema).max(5).optional();
 const severityBody = z.object({ severity: z.enum(SEVERITY) });
 const commentBody = z.object({
   body: z.string().trim().min(1, 'Nội dung bình luận không được rỗng').max(5000),
+  attachments: attachmentsArraySchema,
 });
 
 const createBody = z.object({
@@ -34,6 +46,7 @@ const createBody = z.object({
   description: z.string().trim().min(5, 'Mô tả tối thiểu 5 ký tự').max(5000),
   severity: z.enum(SEVERITY, { message: 'Mức độ ưu tiên không hợp lệ' }),
   categoryId: z.string().min(1).nullable().optional(),
+  attachments: attachmentsArraySchema,
 });
 
 export const ticketsRouter = Router();
@@ -57,6 +70,7 @@ ticketsRouter.post(
         severity: req.body.severity,
         categoryId: req.body.categoryId,
         files,
+        attachments: req.body.attachments,
       },
       req.user!,
     );
@@ -183,6 +197,7 @@ ticketsRouter.post(
       req.params.id,
       req.body.body,
       files,
+      req.body.attachments,
       req.user!,
     );
     res.status(201).json(ok(comment, req.requestId));

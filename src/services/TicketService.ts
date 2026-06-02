@@ -49,12 +49,27 @@ export interface ListQuery {
   pageSize?: number;
 }
 
+/**
+ * Pre-uploaded attachment metadata (direct-to-Blob flow). The browser uploaded
+ * the file straight to Vercel Blob via @vercel/blob/client and is now POSTing
+ * just the resulting URL + metadata.
+ */
+export interface PreUploadedAttachment {
+  url: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 export interface CreateInput {
   title: string;
   description: string;
   severity: Severity;
   categoryId?: string | null;
+  /** Legacy multipart path — files arrived in the request body. */
   files?: IncomingFile[];
+  /** Direct-upload path — files already in Blob, only metadata supplied. */
+  attachments?: PreUploadedAttachment[];
 }
 
 export const TicketService = {
@@ -107,6 +122,21 @@ export const TicketService = {
             kind: kindFromMime(u.file.mimetype),
             sizeBytes: u.file.size,
             storageKey: u.stored.storageKey,
+          },
+        });
+      }
+      // Direct-upload (Blob) attachments — files already live, only metadata
+      // arrives in the JSON body.
+      for (const a of input.attachments ?? []) {
+        await tx.attachment.create({
+          data: {
+            ticketId: ticket.id,
+            uploaderId: caller.id,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            kind: kindFromMime(a.mimeType),
+            sizeBytes: a.sizeBytes,
+            storageKey: a.url,
           },
         });
       }
@@ -523,6 +553,7 @@ export const TicketService = {
     ticketId: string,
     body: string,
     files: IncomingFile[] | undefined,
+    attachmentsMeta: PreUploadedAttachment[] | undefined,
     caller: SessionUser,
   ) {
     await UserService.ensureFromSession(caller);
@@ -566,6 +597,20 @@ export const TicketService = {
             kind: kindFromMime(u.file.mimetype),
             sizeBytes: u.file.size,
             storageKey: u.stored.storageKey,
+          },
+        });
+      }
+      for (const a of attachmentsMeta ?? []) {
+        await tx.attachment.create({
+          data: {
+            ticketId,
+            commentId: comment.id,
+            uploaderId: caller.id,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            kind: kindFromMime(a.mimeType),
+            sizeBytes: a.sizeBytes,
+            storageKey: a.url,
           },
         });
       }
