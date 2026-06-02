@@ -266,6 +266,18 @@ export const TicketService = {
         });
       }
 
+      // Notify the requester — their ticket has been routed.
+      if (before.requesterId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.requesterId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
+          },
+        });
+      }
+
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
         include: TICKET_INCLUDE,
@@ -336,6 +348,24 @@ export const TicketService = {
         await tx.notification.create({
           data: {
             userId: before.helpdeskAssigneeId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: {
+              ticketCode: before.code,
+              status: 'Assigned',
+              fromDepartmentId: before.routedDepartmentId,
+              toDepartmentId: departmentId,
+              reason: reason ?? null,
+            },
+          },
+        });
+      }
+
+      // Notify the requester — their ticket was redirected to a different dept.
+      if (before.requesterId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.requesterId,
             type: 'StatusChanged',
             ticketId,
             payload: {
@@ -572,6 +602,18 @@ export const TicketService = {
         await tx.notification.create({
           data: {
             userId: ticket.helpdeskAssigneeId,
+            type: 'TicketCommented',
+            ticketId,
+            payload: { ticketCode: ticket.code, authorId: caller.id, commentId: comment.id },
+          },
+        });
+      }
+
+      // Notify the requester unless they're the one commenting.
+      if (ticket.requesterId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: ticket.requesterId,
             type: 'TicketCommented',
             ticketId,
             payload: { ticketCode: ticket.code, authorId: caller.id, commentId: comment.id },
