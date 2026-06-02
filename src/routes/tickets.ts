@@ -118,6 +118,15 @@ ticketsRouter.get(
   }),
 );
 
+ticketsRouter.get(
+  '/tickets/:id/comments',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const comments = await TicketService.listComments(req.params.id, req.user!);
+    res.json(ok(comments, req.requestId));
+  }),
+);
+
 // ─────────────── State-machine transitions (BE-S5) ───────────────
 
 ticketsRouter.post(

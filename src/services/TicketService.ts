@@ -282,6 +282,21 @@ export const TicketService = {
     return toTicketDTO(ticket);
   },
 
+  async listComments(id: string, caller: SessionUser) {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id },
+      select: { requesterId: true, routedDepartmentId: true, helpdeskAssigneeId: true },
+    });
+    if (!ticket) throw new NotFoundError('Không tìm thấy ticket');
+    assertCanViewTicket(caller, ticket);
+    const rows = await prisma.ticketComment.findMany({
+      where: { ticketId: id },
+      orderBy: { createdAt: 'asc' },
+      include: TICKET_COMMENT_INCLUDE,
+    });
+    return rows.map(toTicketCommentDTO);
+  },
+
   async getHistory(id: string, caller: SessionUser) {
     const ticket = await prisma.ticket.findUnique({
       where: { id },
