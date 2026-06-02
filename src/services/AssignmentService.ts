@@ -60,6 +60,24 @@ export const AssignmentService = {
         },
       });
 
+      // Notify the requester — their ticket has been picked up by an agent.
+      // Use StatusChanged (the catch-all "your ticket moved" type) with the
+      // assigned-agent id in the payload so the FE can deep-link if needed.
+      if (before.requesterId !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.requesterId,
+            type: 'StatusChanged',
+            ticketId,
+            payload: {
+              ticketCode: before.code,
+              status: before.status,
+              assignedAgentId: agentId,
+            },
+          },
+        });
+      }
+
       return tx.ticket.findUniqueOrThrow({
         where: { id: ticketId },
         include: TICKET_INCLUDE,
