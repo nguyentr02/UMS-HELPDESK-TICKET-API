@@ -85,7 +85,9 @@ describe('BE-S8 — Daily reminder handler', () => {
     await seedTicket({ code: 'HD-2026-A003', status: 'Redirected', severity: 'Low', agentId: 'u-agent-1', ageDays: 0 });
 
     const result = await runDailyReminder({ now: FIXED_MONDAY, dedupe: new MemoryDedupe() });
-    expect(result).toMatchObject({ skipped: null, agentsScanned: 1, notificationsInserted: 1 });
+    // agentsScanned counts every active HelpdeskAgent in the DB — the seed
+    // ships two (u-hda, u-hda-2) plus the one this test injects.
+    expect(result).toMatchObject({ skipped: null, agentsScanned: 3, notificationsInserted: 1 });
 
     const notifs = await prisma.notification.findMany({
       where: { userId: 'u-agent-1', type: 'DailyReminder' },
@@ -182,7 +184,8 @@ describe('BE-S8 — Daily reminder handler', () => {
     }
 
     const result = await runDailyReminder({ now: FIXED_MONDAY, dedupe: new MemoryDedupe() });
-    expect(result.agentsScanned).toBe(3);
+    // 3 agents from this test + 2 already provided by the base seed.
+    expect(result.agentsScanned).toBe(5);
     expect(result.notificationsInserted).toBe(2); // zero-backlog agent gets nothing
 
     const zero = await prisma.notification.count({ where: { userId: 'u-a-zero', type: 'DailyReminder' } });

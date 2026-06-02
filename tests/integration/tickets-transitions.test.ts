@@ -131,9 +131,14 @@ describe('BE-S5 — State-machine transitions', () => {
       toDepartmentId: s.csvcDeptId,
     });
 
-    const notifs = await prisma.notification.findMany({ where: { ticketId: t.id } });
-    expect(notifs).toHaveLength(1);
-    expect(notifs[0]).toMatchObject({ userId: 'u-staff-csvc', type: 'TicketForwarded' });
+    // Forward fans out to the routed dept staff plus requester / assigned
+    // agent when applicable. The dept staff notification is the load-bearing
+    // one for routing — scope the assertion to that recipient.
+    const staffNotifs = await prisma.notification.findMany({
+      where: { ticketId: t.id, userId: 'u-staff-csvc' },
+    });
+    expect(staffNotifs).toHaveLength(1);
+    expect(staffNotifs[0]).toMatchObject({ type: 'TicketForwarded' });
   });
 
   it('M31-BE-S5-H3: DeptStaff (own dept) POST /progress moves Assigned→InProgress, notifies requester', async () => {
