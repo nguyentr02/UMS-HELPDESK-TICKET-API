@@ -224,7 +224,7 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       attachments: {
         type: 'array',
         items: { type: 'string', format: 'binary' },
-        description: 'Multipart files. Max 10 files, ≤10MB each. Field name must be `attachments`.',
+        description: 'Multipart files. Max 5 files, ≤10MB each. Field name must be `attachments`.',
       },
     },
   },
@@ -340,7 +340,7 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       attachments: {
         type: 'array',
         items: { type: 'string', format: 'binary' },
-        description: 'Optional multipart files (≤10MB each, max 10). Same field name and limits as POST /tickets.',
+        description: 'Optional multipart files (≤10MB each, max 5). Same field name and limits as POST /tickets.',
       },
     },
   },
@@ -449,7 +449,7 @@ export const responses: Record<string, OpenAPIV3.ResponseObject> = {
     'Xung đột trạng thái',
   ),
   PayloadTooLarge413: errorResponse(
-    'A single uploaded file exceeded the 10MB limit, or more than 10 files were posted.',
+    'A single uploaded file exceeded the 10MB limit, or more than 5 files were posted.',
     'payload_too_large',
     'File vượt quá giới hạn 10MB',
   ),

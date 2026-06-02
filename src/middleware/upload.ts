@@ -3,7 +3,8 @@ import multer from 'multer';
 import { AppError } from '../lib/errors.js';
 
 const FIELD = 'attachments';
-const MAX_FILES = 10;
+// Project rule: max 5 files per upload, ≤10 MB each (M31 Helpdesk).
+const MAX_FILES = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
 
 const upload = multer({
@@ -23,7 +24,7 @@ export const uploadAttachments: RequestHandler = (req, res, next) => {
         return next(new AppError(413, 'payload_too_large', 'File vượt quá giới hạn 10MB'));
       }
       if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
-        return next(new AppError(413, 'too_many_files', 'Quá nhiều file đính kèm'));
+        return next(new AppError(413, 'too_many_files', 'Tối đa 5 tệp đính kèm mỗi yêu cầu'));
       }
       return next(new AppError(400, 'upload_error', err.message));
     }

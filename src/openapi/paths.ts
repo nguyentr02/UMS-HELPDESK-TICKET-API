@@ -371,7 +371,7 @@ export const paths: OpenAPIV3.PathsObject = {
       tags: ['Tickets'],
       summary: 'Create a ticket.',
       description:
-        'Submits a new ticket on behalf of the calling user (the requester is **server-derived** from the session — any client-supplied `requesterId` is ignored). Multipart `attachments` field accepts up to 10 files, ≤10 MB each. Permission: any authenticated role. Rate limit: standard write.',
+        'Submits a new ticket on behalf of the calling user (the requester is **server-derived** from the session — any client-supplied `requesterId` is ignored). Multipart `attachments` field accepts up to 5 files, ≤10 MB each. Permission: any authenticated role. Rate limit: standard write.',
       security: SECURITY,
       requestBody: {
         required: true,
@@ -774,7 +774,7 @@ export const paths: OpenAPIV3.PathsObject = {
       tags: ['Tickets'],
       summary: 'Add a comment (with optional attachments).',
       description:
-        'Appends a comment to the ticket and writes `TicketEvent[Commented]` in the same Prisma transaction. Optional `attachments` go through the same multer pipeline as `POST /tickets` (≤10 MB per file, max 10) and are tied to the new comment id. **Permission:** anyone who can view the ticket (requester / Helpdesk / Admin / DeptStaff of the routed dept). **Blocked when status=Closed → 409.** Rate limit: standard write.',
+        'Appends a comment to the ticket and writes `TicketEvent[Commented]` in the same Prisma transaction. Optional `attachments` go through the same multer pipeline as `POST /tickets` (≤10 MB per file, max 5) and are tied to the new comment id. **Permission:** anyone who can view the ticket (requester / Helpdesk / Admin / DeptStaff of the routed dept). **Blocked when status=Closed → 409.** Rate limit: standard write.',
       security: SECURITY,
       requestBody: {
         required: true,
