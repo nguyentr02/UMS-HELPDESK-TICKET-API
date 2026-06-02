@@ -40,6 +40,12 @@ export interface AttachmentDTO {
   kind: 'Image' | 'Document';
   sizeBytes: number;
   createdAt: Date;
+  /**
+   * Direct download/view URL — the Blob URL for new uploads, null for legacy
+   * memory/disk-backed attachments (which still need the auth'd BE proxy at
+   * /attachments/:id).
+   */
+  url: string | null;
 }
 
 export type ExternalStatus = 'Requested' | 'Processing' | 'Finished';
@@ -74,6 +80,13 @@ export function toCategoryDTO(c: Category | null): CategoryDTO | null {
 }
 
 export function toAttachmentDTO(att: Attachment & { uploader: User }): AttachmentDTO {
+  // storageKey is the Blob URL for new uploads (https://…blob.vercel-storage.com/…)
+  // and an opaque key (e.g. mem:cuid) for memory/local-disk legacy storage.
+  // Only the URL form is safe to expose to the FE as a direct link.
+  const url =
+    att.storageKey.startsWith('https://') || att.storageKey.startsWith('http://')
+      ? att.storageKey
+      : null;
   return {
     id: att.id,
     ticketId: att.ticketId,
@@ -84,6 +97,7 @@ export function toAttachmentDTO(att: Attachment & { uploader: User }): Attachmen
     kind: att.kind,
     sizeBytes: att.sizeBytes,
     createdAt: att.createdAt,
+    url,
   };
 }
 
