@@ -195,6 +195,30 @@ export const TicketService = {
     return toTicketDTO(created);
   },
 
+  /**
+   * Status-bucket counts for the strip above the tickets table. Uses the same
+   * scope predicate as `list` (`ticketWhereForCaller`) so each role only sees
+   * counts of tickets they're allowed to see. Returned as a dict so the FE can
+   * do direct lookups (`counts.Pending` etc.) and zero-fill missing keys.
+   */
+  async statusCountsForCaller(caller: SessionUser) {
+    const where = ticketWhereForCaller(caller);
+    const rows = await prisma.ticket.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+      where,
+    });
+    const counts: Record<TicketStatus, number> = {
+      Pending: 0,
+      Assigned: 0,
+      InProgress: 0,
+      Redirected: 0,
+      Closed: 0,
+    };
+    for (const r of rows) counts[r.status] = r._count._all;
+    return counts;
+  },
+
   async list(query: ListQuery, caller: SessionUser) {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const pageSize = Math.max(1, Math.min(100, Math.floor(query.pageSize ?? 20)));

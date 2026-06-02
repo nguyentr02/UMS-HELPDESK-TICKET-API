@@ -100,6 +100,17 @@ ticketsRouter.get(
   }),
 );
 
+// Must be declared BEFORE `/tickets/:id` so Express doesn't treat
+// "status-counts" as an :id parameter.
+ticketsRouter.get(
+  '/tickets/status-counts',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const counts = await TicketService.statusCountsForCaller(req.user!);
+    res.json(ok(counts, req.requestId));
+  }),
+);
+
 ticketsRouter.get(
   '/tickets/:id',
   requireAuth,
