@@ -9,7 +9,6 @@ import { CategoryService } from '../services/CategoryService.js';
 
 const createBody = z.object({
   name: z.string().trim().min(2, 'Tên danh mục tối thiểu 2 ký tự').max(120),
-  parentId: z.string().min(1).nullable().optional(),
 });
 
 const updateBody = z.object({

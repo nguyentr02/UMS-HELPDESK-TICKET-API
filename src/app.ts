@@ -13,7 +13,6 @@ import { errorMiddleware } from './middleware/error.js';
 import { healthzRouter } from './routes/healthz.js';
 import { docsRouter } from './routes/docs.js';
 import { categoriesRouter } from './routes/categories.js';
-import { routingRulesRouter } from './routes/routingRules.js';
 import { ticketsRouter } from './routes/tickets.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { jobsRouter } from './routes/jobs.js';
@@ -90,7 +89,6 @@ export function buildApp(): Express {
 
   // Real routers (Phase 3+)
   app.use(categoriesRouter);
-  app.use(routingRulesRouter);
   app.use(ticketsRouter);
   app.use(notificationsRouter);
   app.use(jobsRouter);

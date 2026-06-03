@@ -7,17 +7,7 @@ const envelope = (data: unknown) => ({ data, requestId: REQUEST_ID_EX });
 const EX_CATEGORY = {
   id: 'ckxx0000000001',
   name: 'IT / Hệ thống số',
-  parentId: null,
   isActive: true,
-  createdAt: '2026-06-01T03:00:00.000Z',
-  updatedAt: '2026-06-01T03:00:00.000Z',
-};
-
-const EX_ROUTING_RULE = {
-  id: 'rr-1',
-  categoryId: EX_CATEGORY.id,
-  departmentId: 'dept-it',
-  isDefault: true,
   createdAt: '2026-06-01T03:00:00.000Z',
   updatedAt: '2026-06-01T03:00:00.000Z',
 };
@@ -132,14 +122,14 @@ export const paths: OpenAPIV3.PathsObject = {
       tags: ['Categories'],
       summary: 'Create a category.',
       description:
-        'Creates a new top-level (parentId=null) or child category. Permission: **Admin** only. Rate limit: standard write.',
+        'Creates a new (flat) category. Permission: **Admin** only. Rate limit: standard write.',
       security: SECURITY,
       requestBody: {
         required: true,
         content: {
           'application/json': {
             schema: { $ref: '#/components/schemas/CreateCategoryRequest' },
-            example: { name: 'IT mới', parentId: null },
+            example: { name: 'IT mới' },
           },
         },
       },
@@ -224,142 +214,6 @@ export const paths: OpenAPIV3.PathsObject = {
         '403': { $ref: '#/components/responses/Forbidden403' },
         '404': { $ref: '#/components/responses/NotFound404' },
         '409': { $ref: '#/components/responses/Conflict409' },
-        '500': { $ref: '#/components/responses/Internal500' },
-        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
-      },
-    },
-  },
-
-  '/routing-rules': {
-    get: {
-      tags: ['RoutingRules'],
-      summary: 'List routing rules.',
-      description:
-        'Lists routing rules. Pass `?categoryId=` to scope to a single category. Permission: any authenticated user.',
-      security: SECURITY,
-      parameters: [
-        {
-          name: 'categoryId',
-          in: 'query',
-          required: false,
-          schema: { type: 'string' },
-          description: 'Filter to a single category.',
-        },
-      ],
-      responses: {
-        '200': {
-          description: 'Routing rules.',
-          content: {
-            'application/json': {
-              schema: ENVELOPE_ARRAY('#/components/schemas/RoutingRule'),
-              example: envelope([EX_ROUTING_RULE]),
-            },
-          },
-        },
-        '401': { $ref: '#/components/responses/Unauthorized401' },
-        '500': { $ref: '#/components/responses/Internal500' },
-        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
-      },
-    },
-    post: {
-      tags: ['RoutingRules'],
-      summary: 'Create a routing rule.',
-      description:
-        'Creates a routing rule. When `isDefault=true`, the prior default for the same category is atomically unset in the same transaction so at most one default ever exists per category. Permission: **Admin** only.',
-      security: SECURITY,
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: { $ref: '#/components/schemas/CreateRoutingRuleRequest' },
-            example: {
-              categoryId: EX_CATEGORY.id,
-              departmentId: 'dept-it',
-              isDefault: true,
-            },
-          },
-        },
-      },
-      responses: {
-        '201': {
-          description: 'Created.',
-          content: {
-            'application/json': {
-              schema: ENVELOPE_SCHEMA('#/components/schemas/RoutingRule'),
-              example: envelope(EX_ROUTING_RULE),
-            },
-          },
-        },
-        '401': { $ref: '#/components/responses/Unauthorized401' },
-        '403': { $ref: '#/components/responses/Forbidden403' },
-        '422': { $ref: '#/components/responses/Validation422' },
-        '500': { $ref: '#/components/responses/Internal500' },
-        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
-      },
-    },
-  },
-
-  '/routing-rules/{id}': {
-    parameters: [
-      {
-        name: 'id',
-        in: 'path',
-        required: true,
-        schema: { type: 'string' },
-        description: 'Routing-rule id (cuid).',
-      },
-    ],
-    patch: {
-      tags: ['RoutingRules'],
-      summary: 'Update a routing rule.',
-      description:
-        'Update `departmentId` and/or `isDefault`. Flipping `isDefault` to true atomically unsets any other default for the same category. Permission: **Admin** only.',
-      security: SECURITY,
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: { $ref: '#/components/schemas/UpdateRoutingRuleRequest' },
-            example: { isDefault: false },
-          },
-        },
-      },
-      responses: {
-        '200': {
-          description: 'Updated.',
-          content: {
-            'application/json': {
-              schema: ENVELOPE_SCHEMA('#/components/schemas/RoutingRule'),
-              example: envelope({ ...EX_ROUTING_RULE, isDefault: false }),
-            },
-          },
-        },
-        '401': { $ref: '#/components/responses/Unauthorized401' },
-        '403': { $ref: '#/components/responses/Forbidden403' },
-        '404': { $ref: '#/components/responses/NotFound404' },
-        '422': { $ref: '#/components/responses/Validation422' },
-        '500': { $ref: '#/components/responses/Internal500' },
-        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
-      },
-    },
-    delete: {
-      tags: ['RoutingRules'],
-      summary: 'Delete a routing rule.',
-      description: 'Permission: **Admin** only.',
-      security: SECURITY,
-      responses: {
-        '200': {
-          description: 'Deleted.',
-          content: {
-            'application/json': {
-              schema: ENVELOPE_ID,
-              example: envelope({ id: EX_ROUTING_RULE.id }),
-            },
-          },
-        },
-        '401': { $ref: '#/components/responses/Unauthorized401' },
-        '403': { $ref: '#/components/responses/Forbidden403' },
-        '404': { $ref: '#/components/responses/NotFound404' },
         '500': { $ref: '#/components/responses/Internal500' },
         '503': { $ref: '#/components/responses/ServiceUnavailable503' },
       },

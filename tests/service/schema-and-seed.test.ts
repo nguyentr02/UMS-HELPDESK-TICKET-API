@@ -11,7 +11,6 @@ const EXPECTED_TABLES = [
   'categories',
   'departments',
   'notifications',
-  'routing_rules',
   'ticket_comments',
   'ticket_events',
   'tickets',
@@ -21,8 +20,7 @@ const EXPECTED_TABLES = [
 async function counts(): Promise<SeedCounts> {
   return {
     departments: await prisma.department.count(),
-    categories: await prisma.category.count({ where: { parentId: null } }),
-    routingRules: await prisma.routingRule.count(),
+    categories: await prisma.category.count(),
   };
 }
 
@@ -53,11 +51,10 @@ describe('BE-S2 — Prisma schema + seed', () => {
     expect(names).toEqual(EXPECTED_TABLES);
   });
 
-  it('M31-BE-S2-E1: seed populated 5 departments, 6 top-level categories, ≥5 routing rules', async () => {
+  it('M31-BE-S2-E1: seed populated 5 departments and 6 flat categories', async () => {
     const c = await counts();
     expect(c.departments).toBe(5);
     expect(c.categories).toBe(6);
-    expect(c.routingRules).toBeGreaterThanOrEqual(5);
   });
 
   it('M31-BE-S2-E2: re-running the seed is idempotent (counts unchanged)', async () => {

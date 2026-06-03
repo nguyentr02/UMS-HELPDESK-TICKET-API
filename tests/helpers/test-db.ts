@@ -13,7 +13,6 @@ export async function resetDb(): Promise<void> {
       "attachments",
       "ticket_comments",
       "tickets",
-      "routing_rules",
       "categories",
       "users",
       "departments"

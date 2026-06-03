@@ -136,8 +136,8 @@ describe('BE-S10 — Analytics summary', () => {
     const csvc = await prisma.department.findFirstOrThrow({ where: { code: 'CSVC' } });
     const hcns = await prisma.department.findFirstOrThrow({ where: { code: 'HCNS' } });
     const kt = await prisma.department.findFirstOrThrow({ where: { code: 'KT' } });
-    const catIT = await prisma.category.findFirstOrThrow({ where: { name: 'IT / Hệ thống số', parentId: null } });
-    const catCSVC = await prisma.category.findFirstOrThrow({ where: { name: 'Cơ sở vật chất (CSVC)', parentId: null } });
+    const catIT = await prisma.category.findFirstOrThrow({ where: { name: 'IT / Hệ thống số' } });
+    const catCSVC = await prisma.category.findFirstOrThrow({ where: { name: 'Cơ sở vật chất (CSVC)' } });
 
     // 5 tickets:
     //  - 2 High, 3 Medium    (2 severities)

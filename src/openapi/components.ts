@@ -92,7 +92,6 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
     properties: {
       id: { type: 'string', example: 'ckxx0000000001' },
       name: { type: 'string', example: 'IT / Hệ thống số' },
-      parentId: { type: 'string', nullable: true, example: null },
       isActive: { type: 'boolean', example: true },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
@@ -103,7 +102,6 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
     required: ['name'],
     properties: {
       name: { type: 'string', minLength: 2, maxLength: 120, example: 'IT mới' },
-      parentId: { type: 'string', nullable: true, example: null },
     },
   },
   UpdateCategoryRequest: {
@@ -111,35 +109,6 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
     properties: {
       name: { type: 'string', minLength: 2, maxLength: 120 },
       isActive: { type: 'boolean' },
-    },
-  },
-
-  RoutingRule: {
-    type: 'object',
-    required: ['id', 'categoryId', 'departmentId', 'isDefault', 'createdAt', 'updatedAt'],
-    properties: {
-      id: { type: 'string' },
-      categoryId: { type: 'string' },
-      departmentId: { type: 'string' },
-      isDefault: { type: 'boolean' },
-      createdAt: { type: 'string', format: 'date-time' },
-      updatedAt: { type: 'string', format: 'date-time' },
-    },
-  },
-  CreateRoutingRuleRequest: {
-    type: 'object',
-    required: ['categoryId', 'departmentId'],
-    properties: {
-      categoryId: { type: 'string' },
-      departmentId: { type: 'string' },
-      isDefault: { type: 'boolean', default: false },
-    },
-  },
-  UpdateRoutingRuleRequest: {
-    type: 'object',
-    properties: {
-      departmentId: { type: 'string' },
-      isDefault: { type: 'boolean' },
     },
   },
 

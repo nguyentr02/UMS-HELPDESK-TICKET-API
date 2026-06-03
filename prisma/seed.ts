@@ -10,14 +10,15 @@ const DEPARTMENTS = [
   { code: 'HCNS', name: 'Phòng HCNS' },
 ] as const;
 
-// Top-level categories; `routeTo` is the dept code for the default routing rule.
+// Flat list of triage categories — there's no parent/child hierarchy and no
+// auto-routing (Agent/Lead picks the department per ticket).
 const CATEGORIES = [
-  { name: 'IT / Hệ thống số', routeTo: 'CAIRA-IT' },
-  { name: 'Cơ sở vật chất (CSVC)', routeTo: 'CSVC' },
-  { name: 'Học vụ / Đào tạo', routeTo: 'DT-CTSV' },
-  { name: 'Tài chính', routeTo: 'KT' },
-  { name: 'Nhân sự (HCNS)', routeTo: 'HCNS' },
-  { name: 'Khác', routeTo: null }, // no default routing — Helpdesk decides
+  { name: 'IT / Hệ thống số' },
+  { name: 'Cơ sở vật chất (CSVC)' },
+  { name: 'Học vụ / Đào tạo' },
+  { name: 'Tài chính' },
+  { name: 'Nhân sự (HCNS)' },
+  { name: 'Khác' },
 ] as const;
 
 // Mock SSO identities (mirrors FE lib/auth/session.tsx MOCK_IDENTITIES). Seeded
@@ -44,14 +45,9 @@ const USERS: Array<{ id: string; displayName: string; role: Role; deptCode: stri
 export interface SeedCounts {
   departments: number;
   categories: number;
-  routingRules: number;
 }
 
-/**
- * Idempotent reference-data seed (departments + top-level categories + default
- * routing rules). Re-running is safe — every write is a findFirst+create or
- * upsert keyed on the natural unique column.
- */
+/** Idempotent reference-data seed: departments + flat categories + mock SSO users. */
 export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
   for (const d of DEPARTMENTS) {
     await prisma.department.upsert({
@@ -62,29 +58,9 @@ export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
   }
 
   for (const c of CATEGORIES) {
-    // (name, parentId=null) is logically unique for top-level categories, but
-    // Postgres unique indexes treat NULL as distinct, so we findFirst → create
-    // ourselves to stay idempotent.
-    const existing = await prisma.category.findFirst({
-      where: { name: c.name, parentId: null },
-    });
-    const cat =
-      existing ??
-      (await prisma.category.create({
-        data: { name: c.name, parentId: null, isActive: true },
-      }));
-
-    if (c.routeTo) {
-      const dept = await prisma.department.findUnique({ where: { code: c.routeTo } });
-      if (dept) {
-        await prisma.routingRule.upsert({
-          where: {
-            categoryId_departmentId: { categoryId: cat.id, departmentId: dept.id },
-          },
-          create: { categoryId: cat.id, departmentId: dept.id, isDefault: true },
-          update: { isDefault: true },
-        });
-      }
+    const existing = await prisma.category.findFirst({ where: { name: c.name } });
+    if (!existing) {
+      await prisma.category.create({ data: { name: c.name, isActive: true } });
     }
   }
 
@@ -114,8 +90,7 @@ export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
 
   return {
     departments: await prisma.department.count(),
-    categories: await prisma.category.count({ where: { parentId: null } }),
-    routingRules: await prisma.routingRule.count(),
+    categories: await prisma.category.count(),
   };
 }
 
@@ -127,7 +102,7 @@ if (invokedAsScript) {
     .then((counts) => {
       // eslint-disable-next-line no-console
       console.log(
-        `Seed complete — departments: ${counts.departments}, categories: ${counts.categories}, routingRules: ${counts.routingRules}`,
+        `Seed complete — departments: ${counts.departments}, categories: ${counts.categories}`,
       );
     })
     .catch((e: unknown) => {

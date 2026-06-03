@@ -94,8 +94,7 @@ model Department {
   name String
 
   users         User[]
-  routedTickets Ticket[]      @relation("TicketRoutedDept")
-  routingRules  RoutingRule[]
+  routedTickets Ticket[] @relation("TicketRoutedDept")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -106,37 +105,14 @@ model Department {
 model Category {
   id       String  @id @default(cuid())
   name     String
-  parentId String?
-  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
-  children Category[] @relation("CategoryParent")
-  isActive Boolean    @default(true)
+  isActive Boolean @default(true)
 
-  tickets      Ticket[]
-  routingRules RoutingRule[]
+  tickets Ticket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([name, parentId])
-  @@index([parentId])
   @@map("categories")
-}
-
-model RoutingRule {
-  id           String  @id @default(cuid())
-  categoryId   String
-  departmentId String
-  isDefault    Boolean @default(false)
-
-  category   Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([categoryId, departmentId])
-  @@index([categoryId])
-  @@map("routing_rules")
 }
 
 model Ticket {

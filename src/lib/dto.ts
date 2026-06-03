@@ -26,7 +26,6 @@ export interface DepartmentDTO {
 export interface CategoryDTO {
   id: string;
   name: string;
-  parentId: string | null;
   isActive: boolean;
 }
 
@@ -75,7 +74,7 @@ export function toDepartmentDTOOrNull(d: Department | null): DepartmentDTO | nul
 
 export function toCategoryDTO(c: Category | null): CategoryDTO | null {
   if (!c) return null;
-  return { id: c.id, name: c.name, parentId: c.parentId, isActive: c.isActive };
+  return { id: c.id, name: c.name, isActive: c.isActive };
 }
 
 export function toAttachmentDTO(att: Attachment & { uploader: User }): AttachmentDTO {

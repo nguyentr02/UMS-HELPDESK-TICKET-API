@@ -14,7 +14,6 @@ export const openApiSpec: OpenAPIV3.Document = {
   tags: [
     { name: 'Healthz', description: 'Liveness & readiness probes.' },
     { name: 'Categories', description: 'Ticket categories (Admin-managed; any role can read).' },
-    { name: 'RoutingRules', description: 'Default-routing rules from category → department.' },
     { name: 'Tickets', description: 'Tickets — create / list / detail / history.' },
     { name: 'Attachments', description: 'Attachment downloads (server-scoped).' },
     { name: 'Notifications', description: 'In-app notifications inbox (caller-scoped).' },

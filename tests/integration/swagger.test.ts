@@ -63,8 +63,6 @@ describe('Swagger / OpenAPI (ISO §8.3)', () => {
         '/healthz',
         '/categories',
         '/categories/{id}',
-        '/routing-rules',
-        '/routing-rules/{id}',
         '/tickets',
         '/tickets/{id}',
         '/tickets/{id}/history',
