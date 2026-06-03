@@ -2,7 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { formatDateKey, isHolidaySkip } from '../lib/calendar.js';
 import { defaultDedupe, type ReminderDedupe } from '../lib/dedupe.js';
 
-const BACKLOG_STATUSES = ['Pending', 'Assigned', 'Redirected'] as const;
+const BACKLOG_STATUSES = ['Pending', 'Assigned'] as const;
 const MS_PER_DAY = 86_400_000;
 
 export interface RunOptions {
@@ -23,7 +23,7 @@ export interface RunResult {
 /**
  * Single source of truth shared by the local bullmq worker and the Vercel-Cron
  * HTTP handler. For each active HelpdeskAgent, look up backlog tickets
- * (`Pending | Assigned | Redirected`); if non-empty, dedupe on
+ * (`Pending | Assigned`); if non-empty, dedupe on
  * `reminder:{agentId}:{YYYY-MM-DD}` and insert one `Notification[DailyReminder]`
  * carrying the per-ticket `severity` + `ageDays` (against `now`).
  */

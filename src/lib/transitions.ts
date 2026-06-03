@@ -5,7 +5,6 @@ import { ForbiddenError } from './errors.js';
 export type TransitionKey =
   | 'assign'
   | 'forward'
-  | 'redirect'
   | 'progress'
   | 'close'
   | 'overrideSeverity';
@@ -38,12 +37,6 @@ export const TRANSITIONS: Record<TransitionKey, TransitionRule> = {
     to: 'Assigned',
     baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
   },
-  redirect: {
-    // Re-route after assignment; FP §C: "Redirected → Assigned within same tx".
-    allowedFrom: ['Assigned', 'InProgress'],
-    to: 'Assigned',
-    baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
-  },
   progress: {
     allowedFrom: ['Assigned'],
     to: 'InProgress',
@@ -56,7 +49,7 @@ export const TRANSITIONS: Record<TransitionKey, TransitionRule> = {
     baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
   },
   overrideSeverity: {
-    allowedFrom: ['Pending', 'Assigned', 'InProgress', 'Redirected'],
+    allowedFrom: ['Pending', 'Assigned', 'InProgress'],
     to: null,
     baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
   },

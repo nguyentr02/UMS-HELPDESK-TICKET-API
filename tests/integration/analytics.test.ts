@@ -92,7 +92,7 @@ describe('BE-S10 — Analytics summary', () => {
       closed: 0,
       avgHandlingDays: null,
       bySeverity: { Critical: 0, High: 0, Medium: 0, Low: 0 },
-      byStatus: { Pending: 0, Assigned: 0, InProgress: 0, Redirected: 0, Closed: 0 },
+      byStatus: { Pending: 0, Assigned: 0, InProgress: 0, Closed: 0 },
       byDepartment: [],
       byCategory: [],
     });

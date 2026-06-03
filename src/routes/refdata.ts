@@ -5,7 +5,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 
 /**
- * FE-driven reference-data routes. The Forward/Redirect dropdowns and the
+ * FE-driven reference-data routes. The Forward dropdown and the
  * Assign dialog need the lists below; the rest of the API only references
  * the entities by id, so these were added for client UX rather than
  * domain modelling.

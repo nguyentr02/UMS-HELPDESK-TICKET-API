@@ -24,7 +24,6 @@ enum TicketStatus {
   Pending
   Assigned
   InProgress
-  Redirected
   Closed
 }
 
@@ -53,7 +52,6 @@ enum EventType {
   AgentAssigned
   Forwarded
   Started
-  Redirected
   SeverityChanged
   Commented
   Closed

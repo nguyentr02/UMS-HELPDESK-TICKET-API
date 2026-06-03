@@ -188,31 +188,6 @@ describe('BE-S5 — State-machine transitions', () => {
     expect(ev[1]?.note).toBe('u-agent-2');
   });
 
-  it('M31-BE-S5-E2: Helpdesk POST /redirect from Assigned → new routedDepartmentId; Redirected event carries from→to', async () => {
-    const t = await seedTicket({ status: 'Assigned', routedDepartmentId: s.csvcDeptId });
-
-    const res = await request(app)
-      .post(`/tickets/${t.id}/redirect`)
-      .set(s.leadHeaders)
-      .send({ departmentId: s.hcnsDeptId, reason: 'Chuyển sang HCNS' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({
-      id: t.id,
-      routedDepartment: { id: s.hcnsDeptId },
-      internalStatus: 'Assigned',
-    });
-
-    const ev = await prisma.ticketEvent.findFirstOrThrow({ where: { ticketId: t.id, type: 'Redirected' } });
-    expect(ev).toMatchObject({
-      fromStatus: 'Assigned',
-      toStatus: 'Assigned',
-      fromDepartmentId: s.csvcDeptId,
-      toDepartmentId: s.hcnsDeptId,
-      note: 'Chuyển sang HCNS',
-    });
-  });
-
   it('M31-BE-S5-E3: Helpdesk PATCH /severity updates severity and writes SeverityChanged', async () => {
     const t = await seedTicket({ severity: 'High' });
     const res = await request(app)

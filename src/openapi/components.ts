@@ -27,7 +27,7 @@ export const securitySchemes: Record<string, OpenAPIV3.SecuritySchemeObject> = {
 };
 
 const ENUM_SEVERITY = ['Critical', 'High', 'Medium', 'Low'] as const;
-const ENUM_STATUS = ['Pending', 'Assigned', 'InProgress', 'Redirected', 'Closed'] as const;
+const ENUM_STATUS = ['Pending', 'Assigned', 'InProgress', 'Closed'] as const;
 const ENUM_ROLE = ['SV', 'GV', 'NV', 'HelpdeskLead', 'HelpdeskAgent', 'DeptStaff', 'Admin'] as const;
 const ENUM_NOTIF = [
   'TicketClosed',
@@ -44,7 +44,6 @@ const ENUM_EVENT = [
   'AgentAssigned',
   'Forwarded',
   'Started',
-  'Redirected',
   'SeverityChanged',
   'Commented',
   'Closed',
@@ -361,22 +360,6 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       departmentId: {
         type: 'string',
         description: 'Target department id for the initial routing.',
-      },
-    },
-  },
-  RedirectTicketRequest: {
-    type: 'object',
-    required: ['departmentId'],
-    properties: {
-      departmentId: {
-        type: 'string',
-        description: 'New department to route the ticket to.',
-      },
-      reason: {
-        type: 'string',
-        minLength: 1,
-        maxLength: 2000,
-        description: 'Optional human-readable reason; stored on the TicketEvent.note.',
       },
     },
   },

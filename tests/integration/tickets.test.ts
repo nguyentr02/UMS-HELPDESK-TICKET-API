@@ -110,9 +110,9 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     expect(leadList.data.page.total).toBe(2);
   });
 
-  it('M31-BE-S4-E2: ?status=open returns the four non-Closed statuses', async () => {
+  it('M31-BE-S4-E2: ?status=open returns the three non-Closed statuses', async () => {
     await ensureUserRow('u-sv-1');
-    const statuses: TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'Redirected', 'Closed'];
+    const statuses: TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'Closed'];
     for (let i = 0; i < statuses.length; i++) {
       const status = statuses[i];
       if (!status) continue;
@@ -127,9 +127,9 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     const res = await request(app).get('/tickets').query({ status: 'open' }).set(leadHeaders);
     const body = res.body as ListResponse;
     expect(res.status).toBe(200);
-    expect(body.data.page.total).toBe(4);
+    expect(body.data.page.total).toBe(3);
     const got = body.data.items.map((t) => t.internalStatus).sort();
-    expect(got).toEqual(['Assigned', 'InProgress', 'Pending', 'Redirected']);
+    expect(got).toEqual(['Assigned', 'InProgress', 'Pending']);
   });
 
   it('M31-BE-S4-E3: ?status=Pending,Assigned + ?severity=Critical,High narrows to the intersection', async () => {

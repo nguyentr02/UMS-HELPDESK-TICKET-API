@@ -53,7 +53,6 @@ export type ExternalStatus = 'Requested' | 'Processing' | 'Finished';
 const INTERNAL_TO_EXTERNAL: Record<TicketStatus, ExternalStatus> = {
   Pending: 'Requested',
   Assigned: 'Requested',
-  Redirected: 'Requested',
   InProgress: 'Processing',
   Closed: 'Finished',
 };

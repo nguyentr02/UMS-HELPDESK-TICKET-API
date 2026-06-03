@@ -17,7 +17,7 @@ import {
 } from '../lib/dto.js';
 import { UserService } from './UserService.js';
 
-const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'Redirected'];
+const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress'];
 const STATUS_VALID: readonly TicketStatus[] = [...STATUS_OPEN, 'Closed'];
 const SEVERITY_VALID: readonly Severity[] = ['Critical', 'High', 'Medium', 'Low'];
 
@@ -193,30 +193,6 @@ export const TicketService = {
     });
 
     return toTicketDTO(created);
-  },
-
-  /**
-   * Status-bucket counts for the strip above the tickets table. Uses the same
-   * scope predicate as `list` (`ticketWhereForCaller`) so each role only sees
-   * counts of tickets they're allowed to see. Returned as a dict so the FE can
-   * do direct lookups (`counts.Pending` etc.) and zero-fill missing keys.
-   */
-  async statusCountsForCaller(caller: SessionUser) {
-    const where = ticketWhereForCaller(caller);
-    const rows = await prisma.ticket.groupBy({
-      by: ['status'],
-      _count: { _all: true },
-      where,
-    });
-    const counts: Record<TicketStatus, number> = {
-      Pending: 0,
-      Assigned: 0,
-      InProgress: 0,
-      Redirected: 0,
-      Closed: 0,
-    };
-    for (const r of rows) counts[r.status] = r._count._all;
-    return counts;
   },
 
   async list(query: ListQuery, caller: SessionUser) {
@@ -410,107 +386,6 @@ export const TicketService = {
             type: 'StatusChanged',
             ticketId,
             payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
-          },
-        });
-      }
-
-      return tx.ticket.findUniqueOrThrow({
-        where: { id: ticketId },
-        include: TICKET_INCLUDE,
-      });
-    }).then(toTicketDTO);
-  },
-
-  async redirect(
-    ticketId: string,
-    departmentId: string,
-    reason: string | undefined,
-    caller: SessionUser,
-  ) {
-    await UserService.ensureFromSession(caller);
-
-    const dept = await prisma.department.findUnique({ where: { id: departmentId } });
-    if (!dept) throw new ValidationError({ departmentId: 'Phòng ban không tồn tại' });
-
-    return prisma.$transaction(async (tx) => {
-      const before = await tx.ticket.findUnique({ where: { id: ticketId } });
-      if (!before) throw new NotFoundError('Không tìm thấy ticket');
-
-      assertCanPerform('redirect', caller, before);
-
-      if (!TRANSITIONS.redirect.allowedFrom.includes(before.status)) {
-        throw new ConflictError(`Không thể redirect khi ticket ở trạng thái ${before.status}`);
-      }
-
-      // FP §C: "Redirected → Assigned within same tx" — net post-status is Assigned.
-      const updated = await tx.ticket.updateMany({
-        where: { id: ticketId, status: before.status },
-        data: { status: 'Assigned', routedDepartmentId: departmentId },
-      });
-      if (updated.count === 0) {
-        throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
-      }
-
-      await tx.ticketEvent.create({
-        data: {
-          ticketId,
-          actorId: caller.id,
-          type: 'Redirected',
-          fromStatus: before.status,
-          toStatus: 'Assigned',
-          fromDepartmentId: before.routedDepartmentId,
-          toDepartmentId: departmentId,
-          note: reason ?? null,
-        },
-      });
-
-      const staff = await tx.user.findMany({
-        where: { role: 'DeptStaff', departmentId, isActive: true },
-        select: { id: true },
-      });
-      for (const s of staff) {
-        await tx.notification.create({
-          data: {
-            userId: s.id,
-            type: 'TicketForwarded',
-            ticketId,
-            payload: { ticketCode: before.code, departmentId, reason: reason ?? null },
-          },
-        });
-      }
-
-      // Notify the assigned agent (if any, and not the actor) about the redirect.
-      if (before.helpdeskAssigneeId && before.helpdeskAssigneeId !== caller.id) {
-        await tx.notification.create({
-          data: {
-            userId: before.helpdeskAssigneeId,
-            type: 'StatusChanged',
-            ticketId,
-            payload: {
-              ticketCode: before.code,
-              status: 'Assigned',
-              fromDepartmentId: before.routedDepartmentId,
-              toDepartmentId: departmentId,
-              reason: reason ?? null,
-            },
-          },
-        });
-      }
-
-      // Notify the requester — their ticket was redirected to a different dept.
-      if (before.requesterId !== caller.id) {
-        await tx.notification.create({
-          data: {
-            userId: before.requesterId,
-            type: 'StatusChanged',
-            ticketId,
-            payload: {
-              ticketCode: before.code,
-              status: 'Assigned',
-              fromDepartmentId: before.routedDepartmentId,
-              toDepartmentId: departmentId,
-              reason: reason ?? null,
-            },
           },
         });
       }

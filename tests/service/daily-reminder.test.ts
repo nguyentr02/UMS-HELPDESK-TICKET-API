@@ -82,7 +82,7 @@ describe('BE-S8 — Daily reminder handler', () => {
     await seedAgent('u-agent-1');
     await seedTicket({ code: 'HD-2026-A001', status: 'Pending', severity: 'High', agentId: 'u-agent-1', ageDays: 2 });
     await seedTicket({ code: 'HD-2026-A002', status: 'Assigned', severity: 'Medium', agentId: 'u-agent-1', ageDays: 1 });
-    await seedTicket({ code: 'HD-2026-A003', status: 'Redirected', severity: 'Low', agentId: 'u-agent-1', ageDays: 0 });
+    await seedTicket({ code: 'HD-2026-A003', status: 'Assigned', severity: 'Low', agentId: 'u-agent-1', ageDays: 0 });
 
     const result = await runDailyReminder({ now: FIXED_MONDAY, dedupe: new MemoryDedupe() });
     // agentsScanned counts every active HelpdeskAgent in the DB — the seed

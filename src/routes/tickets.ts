@@ -13,10 +13,6 @@ const SEVERITY = ['Critical', 'High', 'Medium', 'Low'] as const;
 
 const assignBody = z.object({ agentId: z.string().min(1) });
 const forwardBody = z.object({ departmentId: z.string().min(1) });
-const redirectBody = z.object({
-  departmentId: z.string().min(1),
-  reason: z.string().trim().min(1).max(2000).optional(),
-});
 // FE sends `note`; legacy `reason` accepted too for the §8.3 spec example.
 const closeBody = z
   .object({
@@ -100,17 +96,6 @@ ticketsRouter.get(
   }),
 );
 
-// Must be declared BEFORE `/tickets/:id` so Express doesn't treat
-// "status-counts" as an :id parameter.
-ticketsRouter.get(
-  '/tickets/status-counts',
-  requireAuth,
-  asyncHandler(async (req, res) => {
-    const counts = await TicketService.statusCountsForCaller(req.user!);
-    res.json(ok(counts, req.requestId));
-  }),
-);
-
 ticketsRouter.get(
   '/tickets/:id',
   requireAuth,
@@ -156,21 +141,6 @@ ticketsRouter.post(
   zodValidate(forwardBody),
   asyncHandler(async (req, res) => {
     const ticket = await TicketService.forward(req.params.id, req.body.departmentId, req.user!);
-    res.json(ok(ticket, req.requestId));
-  }),
-);
-
-ticketsRouter.post(
-  '/tickets/:id/redirect',
-  requireAuth,
-  zodValidate(redirectBody),
-  asyncHandler(async (req, res) => {
-    const ticket = await TicketService.redirect(
-      req.params.id,
-      req.body.departmentId,
-      req.body.reason,
-      req.user!,
-    );
     res.json(ok(ticket, req.requestId));
   }),
 );

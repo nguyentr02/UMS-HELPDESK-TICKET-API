@@ -419,7 +419,7 @@ export const paths: OpenAPIV3.PathsObject = {
           in: 'query',
           required: false,
           schema: { type: 'string' },
-          description: '`open` (Pending|Assigned|InProgress|Redirected) or comma-separated statuses (e.g. `Pending,Assigned`).',
+          description: '`open` (Pending|Assigned|InProgress) or comma-separated statuses (e.g. `Pending,Assigned`).',
           example: 'open',
         },
         {
@@ -598,46 +598,6 @@ export const paths: OpenAPIV3.PathsObject = {
             'application/json': {
               schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
               example: envelope({ ...EX_TICKET, status: 'Assigned', routedDepartmentId: 'dept-csvc' }),
-            },
-          },
-        },
-        '401': { $ref: '#/components/responses/Unauthorized401' },
-        '403': { $ref: '#/components/responses/Forbidden403' },
-        '404': { $ref: '#/components/responses/NotFound404' },
-        '409': { $ref: '#/components/responses/Conflict409' },
-        '422': { $ref: '#/components/responses/Validation422' },
-        '500': { $ref: '#/components/responses/Internal500' },
-        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
-      },
-    },
-  },
-
-  '/tickets/{id}/redirect': {
-    parameters: [
-      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
-    ],
-    post: {
-      tags: ['Tickets'],
-      summary: 'Redirect to another department.',
-      description:
-        'From `Assigned` or `InProgress`; per FP §C the tx goes through `Redirected` and back to `Assigned` with the new department. `TicketEvent[Redirected]` carries `fromDepartmentId → toDepartmentId` and the optional reason. Permission: **HelpdeskLead** or **HelpdeskAgent**.',
-      security: SECURITY,
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            schema: { $ref: '#/components/schemas/RedirectTicketRequest' },
-            example: { departmentId: 'dept-hcns', reason: 'Sai chuyên môn, chuyển sang HCNS' },
-          },
-        },
-      },
-      responses: {
-        '200': {
-          description: 'Ticket rerouted.',
-          content: {
-            'application/json': {
-              schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
-              example: envelope({ ...EX_TICKET, status: 'Assigned', routedDepartmentId: 'dept-hcns' }),
             },
           },
         },
@@ -965,7 +925,7 @@ export const paths: OpenAPIV3.PathsObject = {
       tags: ['Jobs'],
       summary: 'Run the daily backlog reminder.',
       description:
-        'Single source of truth shared by the local bullmq worker and the Vercel-Cron-invoked deploy. For each active HelpdeskAgent, queries backlog tickets in `{Pending, Assigned, Redirected}` and inserts at most one `Notification[DailyReminder]` per agent per day, deduped by `reminder:{agentId}:{YYYY-MM-DD}`. Skips weekends + holidays. **Authentication:** `Authorization: Bearer $JOB_SECRET` (in prod, `CRON_SECRET` injected by Vercel). Anything else → `403`. Not user-facing; gated by the helpdesk kill-switch.',
+        'Single source of truth shared by the local bullmq worker and the Vercel-Cron-invoked deploy. For each active HelpdeskAgent, queries backlog tickets in `{Pending, Assigned}` and inserts at most one `Notification[DailyReminder]` per agent per day, deduped by `reminder:{agentId}:{YYYY-MM-DD}`. Skips weekends + holidays. **Authentication:** `Authorization: Bearer $JOB_SECRET` (in prod, `CRON_SECRET` injected by Vercel). Anything else → `403`. Not user-facing; gated by the helpdesk kill-switch.',
       security: [{ JobBearer: [] }],
       responses: {
         '200': {
