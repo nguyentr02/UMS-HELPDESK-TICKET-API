@@ -175,6 +175,25 @@ ticketsRouter.patch(
   }),
 );
 
+// `categoryId: null` clears the category — explicit null in the body, not absent.
+const categoryBody = z.object({
+  categoryId: z.string().min(1).nullable(),
+});
+
+ticketsRouter.patch(
+  '/tickets/:id/category',
+  requireAuth,
+  zodValidate(categoryBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.assignCategory(
+      req.params.id,
+      req.body.categoryId,
+      req.user!,
+    );
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
 // ─────────────── Comments (BE-S6) ───────────────
 
 ticketsRouter.post(

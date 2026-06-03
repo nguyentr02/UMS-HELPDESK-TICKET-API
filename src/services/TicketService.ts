@@ -1,6 +1,6 @@
 import type { Prisma, Severity, TicketStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../lib/errors.js';
 import { nextTicketCode } from '../lib/ids.js';
 import { assertCanViewTicket, ticketWhereForCaller } from '../lib/scoping.js';
 import { getStorage, kindFromMime, type IncomingFile } from '../lib/storage/index.js';
@@ -729,5 +729,46 @@ export const TicketService = {
         include: TICKET_INCLUDE,
       });
     }).then(toTicketDTO);
+  },
+
+  /**
+   * Re-categorise a ticket. HelpdeskLead + HelpdeskAgent only. Quiet update
+   * by design — no TicketEvent, no notifications. Pass `categoryId: null` to
+   * clear the category back to "unsorted". 404 if the ticket doesn't exist,
+   * 403 if the role isn't allowed, 409 if the ticket is Closed, 422 if the
+   * categoryId doesn't refer to a real category.
+   */
+  async assignCategory(
+    ticketId: string,
+    categoryId: string | null,
+    caller: SessionUser,
+  ) {
+    await UserService.ensureFromSession(caller);
+
+    if (caller.role !== 'HelpdeskLead' && caller.role !== 'HelpdeskAgent') {
+      throw new ForbiddenError('Chỉ Helpdesk có thể phân loại ticket');
+    }
+
+    if (categoryId) {
+      const cat = await prisma.category.findUnique({ where: { id: categoryId } });
+      if (!cat) throw new ValidationError({ categoryId: 'Danh mục không tồn tại' });
+    }
+
+    const before = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!before) throw new NotFoundError('Không tìm thấy ticket');
+    if (before.status === 'Closed') {
+      throw new ConflictError('Không thể phân loại ticket đã đóng');
+    }
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { categoryId },
+    });
+
+    const updated = await prisma.ticket.findUniqueOrThrow({
+      where: { id: ticketId },
+      include: TICKET_INCLUDE,
+    });
+    return toTicketDTO(updated);
   },
 };
