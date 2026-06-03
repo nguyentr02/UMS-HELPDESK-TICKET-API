@@ -40,7 +40,8 @@ const commentBody = z.object({
 const createBody = z.object({
   title: z.string().trim().min(3, 'Tiêu đề tối thiểu 3 ký tự').max(200),
   description: z.string().trim().min(5, 'Mô tả tối thiểu 5 ký tự').max(5000),
-  severity: z.enum(SEVERITY, { message: 'Mức độ ưu tiên không hợp lệ' }),
+  // Optional — requesters skip severity; Lead/Agent triages later.
+  severity: z.enum(SEVERITY, { message: 'Mức độ ưu tiên không hợp lệ' }).optional(),
   categoryId: z.string().min(1).nullable().optional(),
   attachments: attachmentsArraySchema,
 });

@@ -174,15 +174,17 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     expect(body.data.page.pageSize).toBe(2);
   });
 
-  it('M31-BE-S4-X1: POST /tickets missing severity → 422 fields.severity', async () => {
+  it('M31-BE-S4-X1: POST /tickets without severity → 201, defaults to Medium (Lead/Agent triages later)', async () => {
     const res = await request(app)
       .post('/tickets')
       .set(sv1Headers)
       .field('title', 'A title here')
       .field('description', 'A description here');
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('validation_error');
-    expect(res.body.error.fields?.severity).toBeTruthy();
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({
+      severity: 'Medium',
+      internalStatus: 'Pending',
+    });
   });
 
   it('M31-BE-S4-X2: POST /tickets with a 12MB attachment → 413 payload_too_large', async () => {

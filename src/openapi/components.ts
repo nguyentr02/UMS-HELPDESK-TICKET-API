@@ -209,7 +209,7 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
   },
   CreateTicketRequest: {
     type: 'object',
-    required: ['title', 'description', 'severity'],
+    required: ['title', 'description'],
     properties: {
       title: { type: 'string', minLength: 3, maxLength: 200, example: 'Mạng wifi không hoạt động' },
       description: {

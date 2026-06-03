@@ -83,7 +83,11 @@ export interface PreUploadedAttachment {
 export interface CreateInput {
   title: string;
   description: string;
-  severity: Severity;
+  /**
+   * Optional at create time — Lead / Agent triages and overrides via
+   * PATCH /:id/severity. Defaults to `Medium` when omitted.
+   */
+  severity?: Severity;
   categoryId?: string | null;
   /** Legacy multipart path — files arrived in the request body. */
   files?: IncomingFile[];
@@ -110,6 +114,10 @@ export const TicketService = {
       })),
     );
 
+    // Requesters no longer pick a severity — Lead/Agent triages later.
+    // Default to Medium so the row is valid; PATCH /:id/severity overrides.
+    const severity: Severity = input.severity ?? 'Medium';
+
     const created = await prisma.$transaction(async (tx) => {
       const code = await nextTicketCode(tx);
       const ticket = await tx.ticket.create({
@@ -117,7 +125,7 @@ export const TicketService = {
           code,
           title: input.title,
           description: input.description,
-          severity: input.severity,
+          severity,
           status: 'Pending',
           requesterId: caller.id,
           categoryId: input.categoryId ?? null,
@@ -172,7 +180,7 @@ export const TicketService = {
             userId: l.id,
             type: 'TicketCreated',
             ticketId: ticket.id,
-            payload: { ticketCode: code, requesterId: caller.id, severity: input.severity },
+            payload: { ticketCode: code, requesterId: caller.id, severity },
           },
         });
       }
