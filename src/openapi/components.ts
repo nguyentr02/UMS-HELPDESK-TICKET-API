@@ -1,23 +1,33 @@
 import type { OpenAPIV3 } from 'openapi-types';
 
 export const securitySchemes: Record<string, OpenAPIV3.SecuritySchemeObject> = {
+  SessionCookie: {
+    type: 'apiKey',
+    in: 'cookie',
+    name: 'ums_session',
+    description:
+      'Signed JWT set by `POST /auth/login` in an `HttpOnly Secure SameSite=None` cookie. ' +
+      '8 h lifetime, no refresh. The browser sends it automatically; Swagger UI sends it when ' +
+      '"Try it out" runs in the same origin as the API. Use the **Authorize** button only when ' +
+      'overriding via the `X-Mock-*` headers below in dev.',
+  },
   MockUserId: {
     type: 'apiKey',
     in: 'header',
     name: 'X-Mock-User-Id',
-    description: 'Mock SSO user id (dev only; replaced by real SSO session in prod).',
+    description: 'Dev/test mock-mode user id (ignored in production where AUTH_MODE=jwt).',
   },
   MockRole: {
     type: 'apiKey',
     in: 'header',
     name: 'X-Mock-Role',
-    description: 'Mock SSO role (one of: SV, GV, NV, HelpdeskLead, HelpdeskAgent, DeptStaff, Admin).',
+    description: 'Dev/test mock-mode role (one of: SV, GV, NV, HelpdeskLead, HelpdeskAgent, DeptStaff, Admin).',
   },
   MockDeptId: {
     type: 'apiKey',
     in: 'header',
     name: 'X-Mock-Dept-Id',
-    description: 'Mock SSO department id (used for DeptStaff scoping).',
+    description: 'Dev/test mock-mode department id (used for DeptStaff scoping).',
   },
   JobBearer: {
     type: 'http',
@@ -364,6 +374,35 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       toDepartmentId: { type: 'string', nullable: true },
       note: { type: 'string', nullable: true },
       createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+
+  LoginRequest: {
+    type: 'object',
+    required: ['email', 'password'],
+    properties: {
+      email: {
+        type: 'string',
+        format: 'email',
+        description: 'Persona email — e.g. `sv01@ums.edu.vn`, `admin@ums.edu.vn`. Case-insensitive.',
+        example: 'sv01@ums.edu.vn',
+      },
+      password: {
+        type: 'string',
+        format: 'password',
+        description: 'Per-persona demo password (see the FE credential-helper note).',
+        example: 'sv01-demo!',
+      },
+    },
+  },
+  SessionUser: {
+    type: 'object',
+    required: ['id', 'role', 'departmentId'],
+    properties: {
+      id: { type: 'string', example: 'u-sv-1' },
+      role: { $ref: '#/components/schemas/Role' },
+      departmentId: { type: 'string', nullable: true, example: null },
+      displayName: { type: 'string', example: 'SV Nguyễn Văn A' },
     },
   },
 };

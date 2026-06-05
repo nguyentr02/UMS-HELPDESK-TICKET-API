@@ -38,7 +38,7 @@ const EX_EVENT = {
   createdAt: '2026-06-01T03:00:00.000Z',
 };
 
-const SECURITY: OpenAPIV3.SecurityRequirementObject[] = [{ MockUserId: [], MockRole: [] }];
+const SECURITY: OpenAPIV3.SecurityRequirementObject[] = [{ SessionCookie: [] }];
 
 const ENVELOPE_SCHEMA = (dataRef: string): OpenAPIV3.SchemaObject => ({
   type: 'object',
@@ -71,7 +71,119 @@ const ENVELOPE_ID: OpenAPIV3.SchemaObject = {
   },
 };
 
+const NO_AUTH: OpenAPIV3.SecurityRequirementObject[] = [];
+
+const EX_SESSION_USER = {
+  id: 'u-sv-1',
+  role: 'SV',
+  departmentId: null,
+  displayName: 'SV Nguyễn Văn A',
+};
+
+const SESSION_COOKIE_HEADER: OpenAPIV3.HeaderObject = {
+  description:
+    'Signed JWT session cookie (`ums_session`). `HttpOnly Secure SameSite=None; Max-Age=28800; Path=/`. ' +
+    'Host-only on the API origin — `.vercel.app` is on the Public Suffix List so a parent-domain cookie is impossible.',
+  schema: {
+    type: 'string',
+    example: 'ums_session=eyJ…; Max-Age=28800; Path=/; HttpOnly; Secure; SameSite=None',
+  },
+};
+
 export const paths: OpenAPIV3.PathsObject = {
+  '/auth/login': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Email + password login → sets session cookie.',
+      description:
+        'Verifies email + password against the seeded demo personas (bcrypt). On success, sets the `ums_session` cookie and returns the session user. Failures return an **opaque** 401 with the same body whether the email is wrong, the password is wrong, or the user is inactive — no user enumeration. Rate-limited to 5 failed attempts per 15 min per IP; successful logins do not count.',
+      security: NO_AUTH,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/LoginRequest' },
+            example: { email: 'sv01@ums.edu.vn', password: 'sv01-demo!' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Login successful — `Set-Cookie` carries the JWT.',
+          headers: { 'Set-Cookie': SESSION_COOKIE_HEADER },
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/SessionUser'),
+              example: envelope({ user: EX_SESSION_USER }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '429': {
+          description: 'Rate-limited (≥ 5 failed attempts in 15 min from this IP). The `Retry-After` header indicates seconds until the window resets.',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' },
+              example: {
+                error: { code: 'too_many_attempts', message: 'Quá nhiều lần đăng nhập sai. Vui lòng thử lại sau.' },
+                requestId: REQUEST_ID_EX,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/auth/logout': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Clear the session cookie (idempotent).',
+      description:
+        'Always returns 200 and emits a `Set-Cookie` header that clears `ums_session`. Safe to call without a cookie. The JWT itself is NOT blacklisted server-side — until expiry the original token would still verify, but the browser drops it after this response.',
+      security: NO_AUTH,
+      responses: {
+        '200': {
+          description: 'Cookie cleared.',
+          headers: { 'Set-Cookie': SESSION_COOKIE_HEADER },
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['data', 'requestId'],
+                properties: {
+                  data: { type: 'object' },
+                  requestId: { $ref: '#/components/schemas/RequestId' },
+                },
+              },
+              example: envelope({}),
+            },
+          },
+        },
+      },
+    },
+  },
+  '/auth/me': {
+    get: {
+      tags: ['Auth'],
+      summary: 'Return the current session user (for FE boot rehydrate).',
+      description: 'Reads the `ums_session` cookie, verifies it, and returns the carried claims. Used by the FE on every page load to rehydrate the session before rendering protected routes.',
+      security: SECURITY,
+      responses: {
+        '200': {
+          description: 'Session valid.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/SessionUser'),
+              example: envelope({ user: EX_SESSION_USER }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+      },
+    },
+  },
+
   '/healthz': {
     get: {
       tags: ['Healthz'],
