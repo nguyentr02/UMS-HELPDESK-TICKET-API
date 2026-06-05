@@ -188,6 +188,28 @@ describe('BE-S5 — State-machine transitions', () => {
     expect(ev[1]?.note).toBe('u-agent-2');
   });
 
+  it('M31-BE-S5-E2: Lead assigns AFTER a forward — status stays Assigned, agent now set', async () => {
+    // Repro for the user-reported bug: forward flips status Pending → Assigned;
+    // a Lead then picking an agent must not 409 (assign is an attribute-only
+    // update, like overrideSeverity — should work at any open status).
+    const t = await seedTicket({});
+    const fwd = await request(app)
+      .post(`/tickets/${t.id}/forward`)
+      .set(s.leadHeaders)
+      .send({ departmentId: s.csvcDeptId });
+    expect(fwd.status).toBe(200);
+    expect(fwd.body.data.internalStatus).toBe('Assigned');
+    expect(fwd.body.data.helpdeskAssignee).toBeNull();
+
+    const assign = await request(app)
+      .post(`/tickets/${t.id}/assign`)
+      .set(s.leadHeaders)
+      .send({ agentId: 'u-agent-1' });
+    expect(assign.status).toBe(200);
+    expect(assign.body.data.internalStatus).toBe('Assigned');
+    expect(assign.body.data.helpdeskAssignee.id).toBe('u-agent-1');
+  });
+
   it('M31-BE-S5-E3: Helpdesk PATCH /severity updates severity and writes SeverityChanged', async () => {
     const t = await seedTicket({ severity: 'High' });
     const res = await request(app)

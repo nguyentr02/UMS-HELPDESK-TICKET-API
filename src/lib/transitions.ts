@@ -28,7 +28,11 @@ export interface TransitionRule {
  */
 export const TRANSITIONS: Record<TransitionKey, TransitionRule> = {
   assign: {
-    allowedFrom: ['Pending'],
+    // Attribute-only update (`to: null` — status doesn't change). Lead can pick
+    // an agent at any open status: e.g. forward-to-dept first (Pending →
+    // Assigned) and then assign the agent who'll handle it for the dept;
+    // or reassign mid-progress. Symmetric with `overrideSeverity` below.
+    allowedFrom: ['Pending', 'Assigned', 'InProgress'],
     to: null,
     baseRoles: ['HelpdeskLead'],
   },
