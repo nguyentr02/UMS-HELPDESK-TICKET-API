@@ -21,6 +21,7 @@ async function counts(): Promise<SeedCounts> {
   return {
     departments: await prisma.department.count(),
     categories: await prisma.category.count(),
+    users: await prisma.user.count(),
   };
 }
 

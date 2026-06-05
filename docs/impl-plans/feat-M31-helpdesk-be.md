@@ -17,7 +17,7 @@
 1. Single Express app + a sibling worker entry; the same `jobs/daily-reminder.ts` handler is invoked from both runtimes.
 2. Folder/test layout mirrors `feat-admission-plan` with TS extensions.
 3. **TypeScript** (`tsx --watch` dev, `tsc → dist/` prod); `tsconfig.json` `module: esnext`, `moduleResolution: bundler`, `strict: true`.
-4. Mock SSO via dev headers (`X-Mock-User-Id`, `X-Mock-Role`, `X-Mock-Dept-Id`) toggled by `AUTH_MODE=mock`.
+4. **Demo auth**: email + bcrypt-hashed password (per-persona, seeded) → JWT in `HttpOnly Secure SameSite=None` cookie, 8 h lifetime, no refresh. `cookie-parser` + `cors({ credentials: true, origin })` on the app; rate-limit on `/auth/login`. Identity + role decoded from the JWT on every request (FP §F Identity contract). **No new `username` column** — the existing `User.email` (unique) is the login identifier; only `passwordHash` is added to the schema.
 5. EventPublisher with a logger adapter in dev; prod adapter (QStash or direct HTTPS) decided at Phase 9.
 6. Attachment `StorageAdapter`: local-disk in dev; production adapter is an **open §K item** (Vercel Blob / S3 / R2).
 7. **Hosting: Vercel** — `app.ts` exported as serverless handler; `vercel.json` `crons:` drives the 09:00 reminder; managed Postgres (Vercel/Neon) + managed Redis (Upstash).
@@ -38,10 +38,13 @@ feat-helpdesk-api/
     config/env.ts                # Zod-validated process.env
     middleware/
       requestId.ts  auth.ts  rbac.ts  zodValidate.ts  multer.ts  error.ts
+      rateLimitLogin.ts          # express-rate-limit instance for /auth/login
     routes/
-      healthz.ts  categories.ts  routingRules.ts  tickets.ts  notifications.ts
+      healthz.ts  auth.ts        # POST /auth/login, POST /auth/logout, GET /auth/me
+      categories.ts  routingRules.ts  tickets.ts  notifications.ts
       analytics.ts  jobs.ts      # POST /jobs/daily-reminder (Vercel-Cron-invoked)
     services/
+      AuthService.ts             # verifyCredentials, signJwt, cookieOptions, parseJwt
       TicketService.ts  CategoryService.ts  RoutingService.ts  AssignmentService.ts
       NotificationService.ts  AttachmentService.ts  AnalyticsService.ts
     lib/
@@ -72,7 +75,8 @@ feat-helpdesk-api/
 - [ ] ESLint + Prettier (`@typescript-eslint/*`, `eslint-config-prettier`).
 - [ ] `vitest.config.ts` (Node env, separate projects for `unit`/`service`/`integration`).
 - [ ] `docker-compose.yml` mirrors `feat-admission-plan` (postgres:15-alpine + redis:7-alpine + healthchecks).
-- [ ] `.env.example` (`DATABASE_URL`, `REDIS_URL`, `AUTH_MODE`, `JOB_SECRET`, `STORAGE_DRIVER`, `EVENT_PUBLISHER_DRIVER`, `HELPDESK_ENABLED`).
+- [ ] `.env.example` (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORS_ORIGIN`, `JOB_SECRET`, `STORAGE_DRIVER`, `EVENT_PUBLISHER_DRIVER`, `HELPDESK_ENABLED`).
+  - **Deployed reality:** prod `DATABASE_URL` is NeonDB; the docker-compose `localhost:5433` line is dev-only. `CORS_ORIGIN` ships with `https://umshelpdesk.vercel.app,http://localhost:3000`. **No `COOKIE_DOMAIN`** — the cookie is host-only on `ums-helpdesk-api.vercel.app` because `.vercel.app` is on the Public Suffix List and a parent-domain cookie is impossible.
 - [ ] `.github/workflows/ci.yml`: spin up the compose, `prisma migrate deploy`, `npm run lint && typecheck && test -- --coverage && build`.
 - **Checkpoint:** `npm run typecheck` clean; an empty `tests/unit/sanity.test.ts` passes via `vitest run`.
 
@@ -82,23 +86,43 @@ feat-helpdesk-api/
 - [ ] `lib/envelope.ts` + `lib/errors.ts` (`AppError`, `ValidationError`, `ConflictError`, etc., with codes + status).
 - [ ] `config/env.ts` (Zod schema; reject on boot if invalid).
 - [ ] `middleware/requestId.ts` (header or generate; attaches `req.id`).
-- [ ] `middleware/auth.ts` (mock mode: read `X-Mock-*`; passport mode: hookable stub — wired at deploy).
+- [ ] `middleware/auth.ts` — read `req.cookies.ums_session`, `jwt.verify` with `JWT_SECRET`, attach `req.user = { id, role, departmentId }`. Reject (`401 unauthenticated`) on missing / invalid / expired cookie. Skipped for `/healthz` and `POST /auth/login`.
 - [ ] `middleware/rbac.ts` (capability table; throws `ForbiddenError`).
 - [ ] `middleware/zodValidate.ts` (per-route Zod parse → `ValidationError`).
 - [ ] `middleware/error.ts` (final handler; shapes envelope; logs with `requestId`).
 - [ ] `routes/healthz.ts` (public, returns `{ status:'ok' }`).
-- [ ] `app.ts` (build the Express instance; export default for Vercel handler).
+- [ ] `app.ts` (build the Express instance; **mount order: `helmet` → `cors({ credentials: true, origin: env.CORS_ORIGIN.split(',') })` → `cookie-parser` → `requestId` → `auth` (after `/auth/login`+`/healthz` exclusions) → router**); export default for Vercel handler. **Replaces the current bare `app.use(cors())`** at [`src/app.ts:37`](../../src/app.ts#L37) — that line currently emits no `Access-Control-Allow-Credentials: true`, so the FE's cookie-bearing requests will be blocked by the browser until this lands.
 - [ ] `index.ts` (`if (!process.env.VERCEL) app.listen(PORT)` — local only).
 - **Tests:** `M31-BE-S1-H1`, `-E1..2`, `-X1..2`, `-I1` — all via supertest against `app.ts`.
 - **Checkpoint:** `vitest run` green; `tsc --noEmit` clean; `npm run build` produces `dist/`.
 
 ### Phase 2 — Prisma schema + migration + seed  *(BE-S2)*
-- [ ] `prisma/schema.prisma` — models per FP §E (PascalCase enums; `@@map` snake_case; cuid IDs; indexes).
+- [ ] `prisma/schema.prisma` — models per FP §E (PascalCase enums; `@@map` snake_case; cuid IDs; indexes). **`User` model gains only `passwordHash String?`** — `email` (unique) is the login identifier, `displayName` is what shareholders see; existing `ssoSubject` stays for the future SSO swap.
 - [ ] `0001_create_m31_helpdesk/migration.sql` (generated then committed) + `migration.down.sql` (hand-written DROP set).
-- [ ] `prisma/seed.ts` — upsert 5 departments, 6 categories, default routing rules.
+- [ ] `prisma/seed.ts` — upsert 5 departments, 6 categories, default routing rules, **13 demo personas** (one row per persona — `u-sv-1`, `u-gv-1`, `u-nv-1`, `u-agent-1`, `u-agent-2`, `u-lead-1`, `u-deptstaff-fin-1`, `u-deptstaff-it-1`, `u-deptstaff-aca-1`, `u-deptstaff-fac-1`, `u-deptstaff-hr-1`, `u-admin-1`, plus one extra GV) with `bcryptjs.hash(password, 10)`. Passwords + display names live in a `seed-personas.ts` array so FE credential-helper note can import the *same* list.
 - [ ] `tests/helpers/test-db.ts` — `truncate ... cascade` for M31 tables; `applyMigrations()`; `seedFixtures()`.
-- **Tests:** `M31-BE-S2-H1..I1` (migration + seed idempotency + down-script scope + post-seed `GET /categories`).
+- [ ] `tests/helpers/login-as.ts` — `loginAs(app, { email, password })` helper that hits `POST /auth/login` and returns the `Set-Cookie` array for downstream supertest calls. Existing `X-Mock-*` header tests stay; this helper is purely additive.
+- **Tests:** `M31-BE-S2-H1..I1` (migration + seed idempotency + down-script scope + post-seed `GET /categories`; **persona-seed test asserts all 13 rows present and `bcrypt.compare(plaintext, passwordHash) === true`**).
 - **Checkpoint:** `prisma migrate dev` → `prisma migrate reset` → green test run.
+
+### Phase 2.5 — Demo auth endpoints + middleware  *(BE-S11 — new)*
+
+This phase is purely additive — existing tests keep using `X-Mock-*` headers via the non-prod fallback in `authMiddleware`. New tests that want to exercise the real cookie path use `loginAs(app, persona)`.
+
+- [ ] `services/AuthService.ts`
+  - `verifyCredentials(prisma, email, password)` — `prisma.user.findFirst` (email lowered + `isActive`) → `bcrypt.compare`; returns the `SessionUser` shape or throws `UnauthenticatedError` with the opaque message.
+  - `signJwt(user)` → `jwt.sign({ sub, role, departmentId }, JWT_SECRET, { expiresIn: '8h' })`.
+  - `cookieOptions()` → `{ httpOnly: true, secure: true, sameSite: 'none', maxAge: 8*60*60*1000, path: '/' }` — **no `domain` attribute** (host-only on `ums-helpdesk-api.vercel.app`; `.vercel.app` is on the Public Suffix List so a parent-domain cookie is impossible). In dev (`NODE_ENV !== 'production'`): `secure: false` + `sameSite: 'lax'` so the cookie works on `http://localhost`.
+  - `parseJwt(token)` — `jwt.verify`; returns the decoded claims or throws.
+- [ ] `middleware/rateLimitLogin.ts` — `express-rate-limit` (5 attempts / 15 min / IP, skipSuccessfulRequests).
+- [ ] `routes/auth.ts`
+  - `POST /auth/login` — Zod body `{ email: z.string().email(), password: z.string().min(1) }`; call `verifyCredentials` → `signSessionJwt` → `res.cookie('ums_session', token, sessionCookieOptions())` → respond envelope `{ user: { id, displayName, role, departmentId } }`. On failure → opaque `401 { code: 'unauthenticated' }`. Malformed body → `422 validation_error` with `fields.email`/`fields.password`.
+  - `POST /auth/logout` — `res.clearCookie('ums_session', cookieOptions())`; idempotent `200 {}`.
+  - `GET /auth/me` — `req.user` already populated by `middleware/auth.ts`; return envelope `{ user: { id, fullName, role, departmentId } }`.
+- [ ] Wire `app.ts`: register `POST /auth/login` BEFORE the global auth middleware (it cannot require a cookie); `/auth/logout` and `/auth/me` go after.
+- [ ] Update `JWT_SECRET` env validation in `config/env.ts` — reject boot if missing or < 32 chars.
+- **Tests:** `M31-BE-S11-H1..I1` (login OK, me OK, wrong-password opaque 401, rate-limit, no-cookie 401, malformed-body 422, logout idempotent, full round-trip).
+- **Checkpoint:** `loginAs('u-sv-1')` helper returns a usable `Set-Cookie`; supertest can hit `GET /tickets` with that cookie and get 200; the same call without the cookie returns 401.
 
 ### Phase 3 — Categories + routing-rules (Admin CRUD)  *(BE-S3)*
 - [ ] `services/CategoryService.ts` (create/update/delete + delete-guard).
@@ -175,8 +199,8 @@ feat-helpdesk-api/
 
 ## E. Dependencies to add
 
-- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`, `passport`, `passport-google-oauth20`.
-- **Dev/test:** `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/multer`, `@types/supertest`, `vitest`, `supertest`, `@vitest/coverage-v8`, `prisma`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`.
+- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `cookie-parser`, `jsonwebtoken`, `bcryptjs`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`.
+- **Dev/test:** `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/multer`, `@types/cookie-parser`, `@types/jsonwebtoken`, `@types/bcryptjs`, `@types/supertest`, `vitest`, `supertest`, `@vitest/coverage-v8`, `prisma`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`.
 
 ## F. Rollback / safety
 
@@ -191,6 +215,7 @@ feat-helpdesk-api/
 |---|---|---|
 | 1 | BE-S1 | `M31-BE-S1-*` |
 | 2 | BE-S2 | `M31-BE-S2-*` |
+| 2.5 | BE-S11 | `M31-BE-S11-*` |
 | 3 | BE-S3 | `M31-BE-S3-*` |
 | 4 | BE-S4 | `M31-BE-S4-*` |
 | 5 | BE-S5 | `M31-BE-S5-*` |

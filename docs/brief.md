@@ -35,7 +35,7 @@ The **back-end** introduces the system of record + control plane that makes the 
 
 ## 3. Roles enforced server-side
 
-All requests authenticated via **SSO** (mocked in the practice run); identity + role derived from the token — **never from a client param**.
+All requests authenticated via the **demo login** (see §5): **email + password** → JWT in an `HttpOnly Secure SameSite=None` cookie (8 h). Identity + role are decoded from the JWT on every request — **never from a client param**. Real M1 SSO replaces this swap for production; the BE contract (role-scoped reads, no client-supplied `departmentId`) doesn't change.
 
 | Role | What the BE enforces |
 |---|---|
@@ -57,7 +57,8 @@ All requests authenticated via **SSO** (mocked in the practice run); identity + 
 ## 5. Scope
 
 ### In scope (BE)
-- **REST API** per prior FP §5: tickets, comments, attachments, categories, routing rules, notifications, analytics summary, health.
+- **REST API** per prior FP §5: tickets, comments, attachments, categories, notifications, analytics summary, health, **plus the demo auth endpoints (`POST /auth/login`, `POST /auth/logout`, `GET /auth/me`)**.
+- **Demo authentication** — **email + bcrypt-hashed password** against the seeded mock identities (`sv01@ums.edu.vn`, `admin@ums.edu.vn`, etc.); successful login issues a signed JWT in an `HttpOnly Secure SameSite=None` cookie (8 h lifetime, no refresh). Logout clears the cookie. `GET /auth/me` lets the FE rehydrate the session on reload. No registration, no password reset — re-seed if a password ever needs to rotate.
 - **Persistent data model** per prior FP §4 (Postgres via Prisma; PascalCase enums; `@@map` snake_case tables; cuid IDs; standard timestamps).
 - **State-machine enforcement** server-side; transition + audit row in one Prisma transaction; optimistic guard on current status → `409`.
 - **RBAC** + **server-derived scoping** — every read filters by the caller's role/identity; `departmentId` from the client is ignored.
@@ -71,7 +72,8 @@ All requests authenticated via **SSO** (mocked in the practice run); identity + 
 ### Out of scope
 - **Front-end / UI** — delivered separately by `feat-helpdesk-ticket/` (Next.js + Tailwind) and the Cổng SV/GV (M20/M21) portal embeds.
 - **AI triage (M29)** — deferred; a clean `TriageProvider` integration seam exists but no-ops in v1.
-- **Real M1 SSO** — mocked via dev headers (`X-Mock-User-Id`, `X-Mock-Role`, `X-Mock-Dept-Id`) for the practice run; passport SSO strategy is the production swap-in.
+- **Real M1 SSO** — for the demo, replaced by the email/password login above (JWT cookie). The `X-Mock-*` header shim is kept as a **non-production** fallback so the existing test suite keeps working; production runs JWT-only. Passport SSO strategy remains the production swap-in; the contract on `req.user` doesn't change.
+- **Registration, password reset, "remember me", session refresh** — out of scope for the demo. The credential helper on the FE login page is the "reset" (it shows each persona's password); re-seed to rotate.
 - **Real M2 ESB / M3 data lake** — `EventPublisher` ships a logging implementation in dev; the wire integration is later.
 - **Email / Zalo / push** notifications — in-app only in v1.
 - **Ticket reopen** after close — terminal.

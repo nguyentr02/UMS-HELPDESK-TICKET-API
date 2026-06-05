@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env.js';
 import { UnauthenticatedError } from '../lib/errors.js';
+import { parseSessionJwt, SESSION_COOKIE } from '../services/AuthService.js';
 
 export type Role =
   | 'SV'
@@ -15,7 +16,7 @@ export interface SessionUser {
   id: string;
   role: Role;
   departmentId: string | null;
-  /** Optional in mock mode — used to populate `User.displayName` on first ensure. */
+  /** Display name carried in the JWT for convenience (avoids a DB hit on every request). */
   displayName?: string;
 }
 
@@ -53,21 +54,46 @@ function readMockUser(req: Request): SessionUser | null {
     try {
       displayName = decodeURIComponent(nameRaw);
     } catch {
-      displayName = nameRaw; // fall through if the FE didn't actually URL-encode it
+      displayName = nameRaw;
     }
   }
   return { id, role, departmentId: dept ?? null, displayName };
 }
 
-/** Attaches `req.user` if credentials are present. Does NOT enforce auth — that's `requireAuth`. */
-export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
-  if (env.AUTH_MODE === 'mock') {
-    const user = readMockUser(req);
-    if (user) req.user = user;
-  } else {
-    // SSO mode: the passport strategy will populate req.user via session/JWT.
-    // Wired at deploy time; intentionally a no-op here.
+function readCookieUser(req: Request): SessionUser | null {
+  const token = (req as Request & { cookies?: Record<string, string> }).cookies?.[SESSION_COOKIE];
+  if (!token) return null;
+  try {
+    return parseSessionJwt(token);
+  } catch {
+    // Invalid/expired token = anonymous; `requireAuth` will 401 downstream if the route demands it.
+    return null;
   }
+}
+
+/**
+ * Attaches `req.user` if credentials are present. Does NOT enforce auth — that's `requireAuth`.
+ *
+ * - `jwt` mode (default, prod): the `ums_session` cookie is verified against `JWT_SECRET`.
+ *   In non-prod the `X-Mock-*` headers are still honored as a fallback so the existing
+ *   test suite and supertest-based integration tests keep working without a real login.
+ * - `mock` mode: legacy header-only path (kept for the tests that opt into it explicitly).
+ */
+export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  if (env.AUTH_MODE === 'jwt') {
+    const cookieUser = readCookieUser(req);
+    if (cookieUser) {
+      req.user = cookieUser;
+    } else if (env.NODE_ENV !== 'production') {
+      const mockUser = readMockUser(req);
+      if (mockUser) req.user = mockUser;
+    }
+    return next();
+  }
+
+  // Legacy mock mode — every request reads X-Mock-* headers.
+  const mockUser = readMockUser(req);
+  if (mockUser) req.user = mockUser;
   next();
 }
 

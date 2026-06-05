@@ -121,6 +121,17 @@
 - **X2** — Publisher throws synchronously → caught at the EventPublisher boundary; no error propagates to the HTTP response.
 - **I1** *(integration)* — Lead closes a ticket → the publisher receives a `ticketClosed` event matching the ticket; logger adapter records the call shape.
 
+### BE-S11 — Demo auth (login / logout / me) and cookie-JWT middleware
+
+- **H1** — Seeded persona `POST /auth/login { email:'sv01@ums.edu.vn', password:'<seeded>' }` → `200`; envelope `{ data: { user: { id, role, displayName, departmentId } } }`; response sets the `ums_session` cookie (`HttpOnly`, `Secure`, `SameSite=None`, `Max-Age≈28800`).
+- **H2** — `GET /auth/me` with the cookie → `200`; same user shape as login. `POST /auth/logout` then clears the cookie (`Max-Age=0`); a follow-up `GET /auth/me` → `401`.
+- **E1** — Wrong password → `401` `error.code='unauthenticated'` `error.message='Sai email hoặc mật khẩu'`. The same opaque message for an unknown email (no user enumeration).
+- **E2** — Login is rate-limited: ≥5 failed attempts from the same IP in 60s → `429` `error.code='too_many_requests'`. Successful login resets the counter.
+- **E3** — `GET /tickets` with no cookie → `401`; with an expired/tampered cookie → `401` `error.code='unauthenticated'` (no detail leaked). Healthz and `/auth/login` itself remain reachable.
+- **X1** — `POST /auth/login` with malformed body (missing field, bad email format) → `422` `fields.{email|password}`.
+- **X2** — Logout with no cookie → `200` (idempotent — never `401` on logout).
+- **I1** *(supertest)* — full round-trip: login → cookie set → `GET /auth/me` returns the user → `POST /tickets` succeeds with the cookie → logout → `GET /auth/me` returns `401` → `POST /tickets` returns `401`.
+
 ### BE-S10 — Analytics summary endpoint
 - **H1** — Lead `GET /analytics/summary` → returns `{ total, open, closed, avgHandlingDays, bySeverity, byStatus, byDepartment, byCategory }` shaped per the FE contract.
 - **E1** — Empty DB → all counts zero; `avgHandlingDays` is `0` or `null` and documented (decide once at impl).
@@ -143,8 +154,9 @@
 | BE-S8 | 1 | 3 | 2 | 1 | ✅ |
 | BE-S9 | 1 | 2 | 2 | 1 | ✅ |
 | BE-S10 | 1 | 2 | 2 | 1 | ✅ |
+| BE-S11 | 2 | 3 | 2 | 1 | ✅ |
 
-**Totals:** 13 happy · 25 edge · 24 error · 10 integration = **72 BE test cases**, every Story meeting the minimum.
+**Totals:** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**, every Story meeting the minimum.
 
 ## 5. Open testing questions
 

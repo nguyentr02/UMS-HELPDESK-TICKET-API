@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const DEPARTMENTS = [
   { code: 'CAIRA-IT', name: 'CAIRA / Phòng IT' },
@@ -21,33 +22,50 @@ const CATEGORIES = [
   { name: 'Khác' },
 ] as const;
 
-// Mock SSO identities (mirrors FE lib/auth/session.tsx MOCK_IDENTITIES). Seeded
-// so the agent/dept-staff dropdowns are populated *before* anyone has actually
-// logged in — otherwise `GET /agents` only lists users who happened to hit the
-// API while authenticated. `deptCode` is resolved to the real cuid at seed time.
+// Demo personas (mirrors FE `mocks/personas.ts` — keep in sync). Each row gets a
+// realistic email + plain password; the password is bcrypt-hashed on seed.
+// `deptCode` is resolved to the real cuid at seed time.
 type Role = 'SV' | 'GV' | 'NV' | 'HelpdeskLead' | 'HelpdeskAgent' | 'DeptStaff' | 'Admin';
-const USERS: Array<{ id: string; displayName: string; role: Role; deptCode: string | null }> = [
-  { id: 'u-sv-1', displayName: 'SV Nguyễn Văn A', role: 'SV', deptCode: null },
-  { id: 'u-sv-2', displayName: 'SV Phạm Thị D', role: 'SV', deptCode: null },
-  { id: 'u-gv-1', displayName: 'GV Trần Văn B', role: 'GV', deptCode: null },
-  { id: 'u-gv-2', displayName: 'GV Hoàng Văn E', role: 'GV', deptCode: null },
-  { id: 'u-nv-1', displayName: 'NV Lê Văn C', role: 'NV', deptCode: null },
-  { id: 'u-nv-2', displayName: 'NV Bùi Thị F', role: 'NV', deptCode: null },
-  { id: 'u-hda', displayName: 'Đỗ Thị Mai', role: 'HelpdeskAgent', deptCode: null },
-  { id: 'u-hda-2', displayName: 'Nguyễn Văn Quân', role: 'HelpdeskAgent', deptCode: null },
-  { id: 'u-hdl', displayName: 'Vũ Văn Hùng', role: 'HelpdeskLead', deptCode: null },
-  { id: 'u-staff', displayName: 'Phan Thị Hương (CSVC)', role: 'DeptStaff', deptCode: 'CSVC' },
-  { id: 'u-staff-hcns', displayName: 'Lương Văn Đức (HCNS)', role: 'DeptStaff', deptCode: 'HCNS' },
-  { id: 'u-staff-dt', displayName: 'Trịnh Thị Lan (Đào tạo)', role: 'DeptStaff', deptCode: 'DT-CTSV' },
-  { id: 'u-admin', displayName: 'Quản trị viên', role: 'Admin', deptCode: null },
+
+export interface PersonaSeed {
+  id: string;
+  email: string;
+  password: string;
+  displayName: string;
+  role: Role;
+  deptCode: string | null;
+}
+
+export const PERSONAS: PersonaSeed[] = [
+  // Sinh viên
+  { id: 'u-sv-1',  email: 'sv01@ums.edu.vn',           password: 'sv01-demo!',         displayName: 'SV Nguyễn Văn A',          role: 'SV',            deptCode: null      },
+  { id: 'u-sv-2',  email: 'sv02@ums.edu.vn',           password: 'sv02-demo!',         displayName: 'SV Phạm Thị D',            role: 'SV',            deptCode: null      },
+  // Giảng viên
+  { id: 'u-gv-1',  email: 'gv01@ums.edu.vn',           password: 'gv01-demo!',         displayName: 'GV Trần Văn B',            role: 'GV',            deptCode: null      },
+  { id: 'u-gv-2',  email: 'gv02@ums.edu.vn',           password: 'gv02-demo!',         displayName: 'GV Hoàng Văn E',           role: 'GV',            deptCode: null      },
+  // Nhân viên
+  { id: 'u-nv-1',  email: 'nv01@ums.edu.vn',           password: 'nv01-demo!',         displayName: 'NV Lê Văn C',              role: 'NV',            deptCode: null      },
+  { id: 'u-nv-2',  email: 'nv02@ums.edu.vn',           password: 'nv02-demo!',         displayName: 'NV Bùi Thị F',             role: 'NV',            deptCode: null      },
+  // Helpdesk Agent
+  { id: 'u-hda',   email: 'agent01@ums.edu.vn',        password: 'agent01-demo!',      displayName: 'Đỗ Thị Mai',               role: 'HelpdeskAgent', deptCode: null      },
+  { id: 'u-hda-2', email: 'agent02@ums.edu.vn',        password: 'agent02-demo!',      displayName: 'Nguyễn Văn Quân',          role: 'HelpdeskAgent', deptCode: null      },
+  // Helpdesk Lead
+  { id: 'u-hdl',   email: 'lead01@ums.edu.vn',         password: 'lead01-demo!',       displayName: 'Vũ Văn Hùng',              role: 'HelpdeskLead',  deptCode: null      },
+  // Dept Staff (per-department)
+  { id: 'u-staff',        email: 'staff.csvc@ums.edu.vn', password: 'staff-csvc-demo!', displayName: 'Phan Thị Hương (CSVC)',    role: 'DeptStaff',     deptCode: 'CSVC'    },
+  { id: 'u-staff-hcns',   email: 'staff.hcns@ums.edu.vn', password: 'staff-hcns-demo!', displayName: 'Lương Văn Đức (HCNS)',     role: 'DeptStaff',     deptCode: 'HCNS'    },
+  { id: 'u-staff-dt',     email: 'staff.dt@ums.edu.vn',   password: 'staff-dt-demo!',   displayName: 'Trịnh Thị Lan (Đào tạo)',  role: 'DeptStaff',     deptCode: 'DT-CTSV' },
+  // Admin
+  { id: 'u-admin', email: 'admin@ums.edu.vn',          password: 'admin-demo!',        displayName: 'Quản trị viên',            role: 'Admin',         deptCode: null      },
 ];
 
 export interface SeedCounts {
   departments: number;
   categories: number;
+  users: number;
 }
 
-/** Idempotent reference-data seed: departments + flat categories + mock SSO users. */
+/** Idempotent reference-data seed: departments + flat categories + demo personas with bcrypt-hashed passwords. */
 export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
   for (const d of DEPARTMENTS) {
     await prisma.department.upsert({
@@ -64,23 +82,26 @@ export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
     }
   }
 
-  // ─── Mock SSO identities ───
-  // Build a code→id map for dept-scoped staff users.
+  // ─── Demo personas (email + bcrypt-hashed password) ───
   const deptRows = await prisma.department.findMany({ select: { id: true, code: true } });
   const deptByCode = new Map(deptRows.map((d) => [d.code, d.id]));
-  for (const u of USERS) {
+  for (const u of PERSONAS) {
     const departmentId = u.deptCode ? deptByCode.get(u.deptCode) ?? null : null;
+    const passwordHash = await bcrypt.hash(u.password, 10);
     await prisma.user.upsert({
       where: { id: u.id },
       create: {
         id: u.id,
         ssoSubject: `mock:${u.id}`,
-        email: `${u.id}@mock.local`,
+        email: u.email,
+        passwordHash,
         displayName: u.displayName,
         role: u.role,
         departmentId,
       },
       update: {
+        email: u.email,
+        passwordHash,
         displayName: u.displayName,
         role: u.role,
         departmentId,
@@ -91,6 +112,7 @@ export async function runSeed(prisma: PrismaClient): Promise<SeedCounts> {
   return {
     departments: await prisma.department.count(),
     categories: await prisma.category.count(),
+    users: await prisma.user.count(),
   };
 }
 
@@ -102,7 +124,7 @@ if (invokedAsScript) {
     .then((counts) => {
       // eslint-disable-next-line no-console
       console.log(
-        `Seed complete — departments: ${counts.departments}, categories: ${counts.categories}`,
+        `Seed complete — departments: ${counts.departments}, categories: ${counts.categories}, users: ${counts.users}`,
       );
     })
     .catch((e: unknown) => {

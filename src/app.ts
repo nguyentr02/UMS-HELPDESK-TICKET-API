@@ -1,4 +1,5 @@
 import express, { type Express } from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
@@ -12,6 +13,7 @@ import { requireRole } from './middleware/rbac.js';
 import { errorMiddleware } from './middleware/error.js';
 import { healthzRouter } from './routes/healthz.js';
 import { docsRouter } from './routes/docs.js';
+import { authRouter } from './routes/auth.js';
 import { categoriesRouter } from './routes/categories.js';
 import { ticketsRouter } from './routes/tickets.js';
 import { notificationsRouter } from './routes/notifications.js';
@@ -30,11 +32,22 @@ export function buildApp(): Express {
 
   app.disable('x-powered-by');
 
-  // Middleware chain (FP §F): requestId → log → cors → helmet → body parser
-  // → healthz (always-on) → kill-switch → auth → routes → 404 → error.
+  // Middleware chain (FP §F): requestId → log → cors → helmet → body parser →
+  // cookie-parser → healthz (always-on) → kill-switch → auth → routes → 404 → error.
   app.use(requestIdMiddleware);
   app.use(pinoHttp({ logger, customLogLevel: (_req, res) => (res.statusCode >= 500 ? 'error' : 'info') }));
-  app.use(cors());
+
+  // Cross-origin cookie auth needs `credentials: true` + an explicit origin allow-list.
+  // CORS_ORIGIN is comma-separated (e.g. "https://umshelpdesk.vercel.app,http://localhost:3000").
+  // When unset (legacy mock-mode dev), fall back to permissive same-origin behavior.
+  const corsOrigins = env.CORS_ORIGIN?.split(',').map((s) => s.trim()).filter(Boolean);
+  app.use(
+    cors(
+      corsOrigins && corsOrigins.length > 0
+        ? { origin: corsOrigins, credentials: true }
+        : {},
+    ),
+  );
   // Helmet with CSP that allows the Swagger UI CDN (jsdelivr) for /docs.
   // JSON endpoints don't load scripts/styles so the relaxations are inert
   // outside the docs page.
@@ -53,6 +66,7 @@ export function buildApp(): Express {
     }),
   );
   app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
 
   // Healthz is public AND unaffected by the kill-switch — monitoring stays alive.
   app.use(healthzRouter);
@@ -71,6 +85,10 @@ export function buildApp(): Express {
 
   // Soft-attach req.user if SSO credentials are present.
   app.use(authMiddleware);
+
+  // Auth endpoints — login is public (rate-limited inside the router); logout
+  // is idempotent; /auth/me is gated by requireAuth inside the router.
+  app.use(authRouter);
 
   // Diagnostic routes — exercise the middleware chain end-to-end and let the
   // BE-S1 integration tests cover auth/RBAC/error wiring before real routes

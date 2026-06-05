@@ -6,7 +6,16 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
 
-  AUTH_MODE: z.enum(['mock', 'sso']).default('mock'),
+  // 'jwt' (default) = HttpOnly Secure SameSite=None cookie verified against JWT_SECRET.
+  // 'mock' = legacy X-Mock-* header path, only meaningful in dev/test; production must use 'jwt'.
+  AUTH_MODE: z.enum(['mock', 'jwt']).default('jwt'),
+
+  // Required in jwt mode; min 32 chars so HS256 has enough entropy.
+  JWT_SECRET: z.string().min(32).optional(),
+
+  // Comma-separated list of allowed origins for cross-origin cookie auth (FE → BE).
+  // Required in jwt mode. Example: "https://umshelpdesk.vercel.app,http://localhost:3000"
+  CORS_ORIGIN: z.string().min(1).optional(),
 
   HELPDESK_ENABLED: z
     .enum(['true', 'false'])
@@ -22,6 +31,13 @@ const EnvSchema = z.object({
   EVENT_PUBLISHER_DRIVER: z.enum(['logger', 'qstash']).default('logger'),
   QSTASH_TOKEN: z.string().min(1).optional(),
 }).refine(
+  // jwt mode needs the secret. Mock mode (dev/test only) doesn't.
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.JWT_SECRET,
+  { message: 'JWT_SECRET is required when AUTH_MODE=jwt', path: ['JWT_SECRET'] },
+).refine(
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.CORS_ORIGIN,
+  { message: 'CORS_ORIGIN is required when AUTH_MODE=jwt', path: ['CORS_ORIGIN'] },
+).refine(
   // Boot-time guard (FP §K): if the prod event driver is selected we MUST have
   // a token, otherwise the first publish would 500. Fail fast at startup.
   (data) => data.EVENT_PUBLISHER_DRIVER !== 'qstash' || !!data.QSTASH_TOKEN,

@@ -9,6 +9,11 @@ function envFrom(overrides: Record<string, string | undefined>): NodeJS.ProcessE
     JOB_SECRET: 'sufficiently-long-secret',
     HELPDESK_ENABLED: 'true',
     LOG_LEVEL: 'silent',
+    // jwt-mode requires both; supply test-safe values so the publisher tests stay
+    // focused on EVENT_PUBLISHER_DRIVER without dragging the auth schema in.
+    AUTH_MODE: 'jwt',
+    JWT_SECRET: 'test-secret-at-least-32-characters-long',
+    CORS_ORIGIN: 'http://localhost:3000',
     ...overrides,
   } as NodeJS.ProcessEnv;
 }

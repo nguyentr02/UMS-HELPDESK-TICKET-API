@@ -16,7 +16,7 @@
 1. **Single Express app**, not a microservices split. The cron worker, API, and event publisher all run inside one process (bullmq worker as a sibling entry point under the same package). Matches `feat-admission-plan`.
 2. **Folder structure mirrors `feat-admission-plan`**: `src/{routes,services,middleware,lib,config,types}` + `prisma/` + `tests/{unit,service,integration}` + `docker-compose.yml`.
 3. **TypeScript** for the BE (Node 20, ES modules) — deviation from `feat-admission-plan` (which is JS-with-JSDoc), per direction. Dev runs via `tsx --watch`; prod build via `tsc → dist/` and `node dist/index.js`. Zod `z.infer` for derived request/DTO types; Prisma's generated client types flow end-to-end. `tsconfig.json` set to `"module": "esnext"`, `"moduleResolution": "bundler"`, `"strict": true`.
-4. **Mock SSO via dev headers** (`X-Mock-User-Id`, `X-Mock-Role`, `X-Mock-Dept-Id`) toggled by `AUTH_MODE=mock`. The passport SSO strategy is the production swap-in (same `req.user` shape).
+4. **Demo auth via email + password** → signed JWT in an `HttpOnly Secure SameSite=None` cookie (8 h lifetime, no refresh). Login (`POST /auth/login { email, password }`) bcrypt-checks against `User.passwordHash` seeded by `prisma/seed.ts` (per-persona passwords, one per mock identity). Logout clears the cookie; `GET /auth/me` lets the FE rehydrate on reload. The passport SSO strategy is the production swap-in — the rest of the app keeps reading `req.user` only, so the cutover is one middleware change.
 5. **EventPublisher**: a logger-backed implementation in dev; a queued (bullmq) outbound channel ready for ESB wiring later.
 6. **Attachment storage adapter**: local disk in dev (`./uploads`); the `StorageAdapter` interface lets an object-storage adapter drop in later (§10 open item).
 7. **Hosting target: Vercel** (serverless). Constrains a few of the defaults above:
@@ -290,15 +290,23 @@ erDiagram
 - **`status` query** on `GET /tickets`: accepts CSV or repeated values from `{Pending,Assigned,InProgress,Redirected,Closed}`, **or** the convenience value `open` meaning every non-`Closed` state.
 - **Mutations** use Zod-validated request bodies; FormData on `POST /tickets` and `POST /:id/comments` (multer).
 
-The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,redirect,progress,close,comments}`, `PATCH /:id/severity`, `GET /:id/history`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST/PATCH/DELETE /routing-rules[/:id]`, `GET/POST /notifications[/:id/read]`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
+The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
+
+**Auth endpoints (demo build):**
+
+| Method + path | Body | Returns | Notes |
+|---|---|---|---|
+| `POST /auth/login` | `{ username, password }` | 200 envelope `{ user }` + `Set-Cookie` JWT | 401 on bad credentials; rate-limited; opaque error message ("Sai tài khoản hoặc mật khẩu") so attackers can't enumerate. |
+| `POST /auth/logout` | — | 200 empty envelope + `Set-Cookie` clearing | Idempotent; no 401 if cookie missing. |
+| `GET /auth/me` | — | 200 envelope `{ user }` if cookie valid, 401 otherwise | The FE calls this on app boot to rehydrate `SessionProvider`. |
 
 ### Middleware order
 
-`requestId → pino-http (log) → cors → helmet → body parser (json | multipart for upload routes) → auth (mock/passport, attaches req.user{id,role,departmentId}) → rbac (route-level capability check) → zodValidate (per route) → handler → error (envelope-shapes everything)`.
+`requestId → pino-http (log) → cors (credentials: true, origin from env) → helmet → cookie-parser → body parser (json | multipart for upload routes) → auth (verify JWT cookie, attach req.user{id,role,departmentId}) → rbac (route-level capability check) → zodValidate (per route) → handler → error (envelope-shapes everything)`.
 
 ### Identity contract
 
-Mock mode: middleware reads `X-Mock-User-Id`, `X-Mock-Role`, `X-Mock-Dept-Id` and sets `req.user`. Production mode: passport SSO strategy resolves the SSO token to the same shape. The rest of the app reads `req.user` only — swapping mock for real is one middleware change.
+Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT against `JWT_SECRET`, hydrates `req.user` from the payload. `/auth/login` is the only endpoint that runs **before** this middleware (it issues the cookie); `/healthz` and `/docs/*` remain public. Production mode: passport SSO strategy resolves the SSO token to the same `req.user` shape — the rest of the app is unchanged.
 
 ## G. Notifications & the daily 09:00 reminder
 
@@ -314,7 +322,7 @@ Mock mode: middleware reads `X-Mock-User-Id`, `X-Mock-Role`, `X-Mock-Dept-Id` an
 
 ## I. Non-functional requirements
 
-- **Security:** SSO required everywhere except `/healthz`; RBAC enforced at route + service layer (defence in depth); helmet; per-route rate limits on `POST /tickets` and `POST /:id/comments`; attachments — MIME allowlist (images: jpg/png/webp/gif; docs: pdf/doc/docx/xls/xlsx), ≤10 MB, ≤5 files, stored outside webroot, streamed download with authz, virus-scan hook for later; Zod validation on every mutation; **no PII or SSO secrets in logs**; SQL safety via Prisma parameterised queries.
+- **Security:** auth required everywhere except `/healthz`, `/docs/*`, and `/auth/login` itself; RBAC enforced at route + service layer (defence in depth); helmet; per-route rate limits on `POST /auth/login`, `POST /tickets`, and `POST /:id/comments`; passwords stored as bcrypt hashes (cost ≥ 10); JWT signed with `JWT_SECRET` (≥ 32 random bytes, no fallback), `HttpOnly Secure SameSite=None` cookie scoped to the BE origin; attachments — MIME allowlist (images: jpg/png/webp/gif; docs: pdf/doc/docx/xls/xlsx), ≤10 MB, ≤5 files, stored outside webroot, streamed download with authz, virus-scan hook for later; Zod validation on every mutation; **no passwords, JWT secrets, or PII in logs**; SQL safety via Prisma parameterised queries.
 - **Observability:** pino structured logs; `requestId` generated by the requestId middleware, propagated to logger child + response envelope; the `TicketEvent` audit table is the in-DB audit log; `GET /healthz` for liveness; analytics summary endpoint feeds the FE module dashboard.
 - **Reliability:** status transition + audit row + notification row in **one Prisma transaction**; optimistic guard on current status → `409` on stale write; bullmq retries (max 3, exponential) for the reminder job + event publisher; idempotent reminder via dedupe key; graceful shutdown drains the queue.
 - **Performance:** list endpoints paginated (default 20, max 100); the indexes above; attachment streaming (not buffered); the reminder job batches one DB query per agent group.
