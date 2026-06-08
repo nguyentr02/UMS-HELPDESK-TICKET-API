@@ -403,6 +403,12 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       role: { $ref: '#/components/schemas/Role' },
       departmentId: { type: 'string', nullable: true, example: null },
       displayName: { type: 'string', example: 'SV Nguyễn Văn A' },
+      avatarUrl: {
+        type: 'string',
+        nullable: true,
+        description: 'Google profile picture URL (`picture` claim). Set only for Google-linked accounts.',
+        example: null,
+      },
     },
   },
 };

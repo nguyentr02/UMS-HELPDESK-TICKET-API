@@ -189,6 +189,50 @@ This phase is purely additive — existing tests keep using `X-Mock-*` headers v
 - [ ] `vercel.json` finalized; deploy-preview verifies `app.ts` handler boots and `/healthz` returns 200 *(not run in practice mode — documented).*
 - [ ] Pick the prod attachment storage adapter (FP §K open item) and add the chosen adapter under `lib/storage/`.
 
+### Phase 12 — Google OAuth login  *(BE-S12 — new)*
+
+Adds "Sign in with Google" alongside the email/password flow. Authorization Code Flow, **BE-mediated** — the FE just kicks off a redirect; the BE handles the OAuth round-trip, verifies the ID token, upserts the user, and issues the **same `ums_session` JWT cookie** as Phase 2.5. Cookie/session machinery, RBAC, and FE consumers are unchanged.
+
+**Decisions (locked):**
+- **Email-domain allowlist**: `@ums.edu.vn`, `@dau.edu.vn`. Any other domain → 403 at the callback (clear error page on FE).
+- **First-time sign-in**: auto-create a new `User` row with `role: 'SV'`. Admin elevates later through `M02 Phân quyền` (out of scope here).
+- **Account linking**: if the Google email matches an existing user (e.g., a seeded persona like `sv01@ums.edu.vn`), link the accounts — set `googleId` on the existing row, keep their role / departmentId / history intact.
+
+**Phase 12.A — schema + env + deps**
+- [ ] `prisma/schema.prisma` — `User` gains `googleId String? @unique` + `avatarUrl String?`. Both nullable; existing rows untouched.
+- [ ] `prisma/migrations/20260605000000_user_google_columns/{migration.sql,migration.down.sql}` — additive `ADD COLUMN` only.
+- [ ] `config/env.ts` — Zod-validate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `FE_ORIGIN` (all required when `AUTH_MODE=jwt`).
+- [ ] Deps: add `google-auth-library` (drop the never-used `passport` + `passport-google-oauth20`).
+- [ ] `.env.example` + Vercel env: document the four new vars + the Google Cloud setup steps.
+
+**Phase 12.B — service + routes**
+- [ ] `services/AuthService.ts`
+  - `verifyGoogleIdToken(idToken)` — uses `OAuth2Client.verifyIdToken({ audience: GOOGLE_CLIENT_ID })`; returns the verified payload or throws `UnauthenticatedError`.
+  - `upsertGoogleUser({ googleId, email, name, picture })` — domain allowlist check → lookup by `googleId` → fall back to lookup by `email` (link path) → fall back to create-new (role: SV). Returns `SessionUser`.
+- [ ] `routes/auth.ts`
+  - `GET /auth/google` — `?next=` honored. Generates signed `state = jwt.sign({ next, nonce }, JWT_SECRET, { expiresIn: '10m' })`, sets `Set-Cookie: google_oauth_state=<state>; HttpOnly; SameSite=Lax; Path=/auth/google/callback; Max-Age=600`, then `302` to Google's authorization URL with `state` in the query.
+  - `GET /auth/google/callback` — double-submit verify (cookie `state` === URL `state`), `jwt.verify(state)` → extract `next`; exchange `code` for tokens via the OAuth client; verify ID token; upsert user; sign JWT; set `ums_session` cookie; clear the `google_oauth_state` cookie; `302` to `${env.FE_ORIGIN}${sanitizedNext}`.
+- [ ] `app.ts` — mount the auth router as-is (no global-auth middleware needed for the two new routes; they're public-by-design).
+- [ ] `openapi/{paths,components}.ts` — document both routes with their redirect status codes + the `googleId` field on the SessionUser schema.
+
+**Phase 12.C — tests + local run**
+- [ ] `tests/unit/auth-service-google.test.ts` — `upsertGoogleUser` paths (new user / existing-by-googleId / existing-by-email-linking / rejected-domain). Mock `verifyGoogleIdToken` with `vi.mock`.
+- [ ] `tests/integration/auth-google.test.ts` — `/auth/google` returns `302` + `Set-Cookie: google_oauth_state`; `/auth/google/callback` with a mocked verifier returns `302` to `${FE_ORIGIN}` + `Set-Cookie: ums_session` + clears state cookie. Includes mismatched-state, expired-state, rejected-domain, code-exchange-failure cases.
+- [ ] Local: apply migration to docker-compose Postgres → `npm test` → green.
+
+**Phase 12.D — production rollout** *(blocks on user)*
+- [ ] User: Google Cloud Console — create OAuth client, allowlist redirect URIs (`https://ums-helpdesk-api.vercel.app/auth/google/callback`, `http://localhost:4000/auth/google/callback`).
+- [ ] User: Vercel env vars on the BE project — add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `FE_ORIGIN`.
+- [ ] Apply migration to NeonDB.
+- [ ] Push → Vercel deploy → smoke test `curl -i https://ums-helpdesk-api.vercel.app/auth/google` → expect `302` to `accounts.google.com`.
+
+**Phase 12 risk register**
+- **Open-redirect via `next`** → sanitize: must start with `/`, can't start with `//`, no scheme. Reject anything else, fall back to `/`.
+- **State CSRF** → double-submit cookie + signed JWT state means both the cookie AND the URL state are needed AND they must match a server-issued signed value. An attacker forging only one side fails.
+- **Cross-origin Set-Cookie on the callback** → same as Phase 2.5: the cookie is set on the BE origin, browser sends it cross-origin to the BE on subsequent requests via `SameSite=None; Secure`. The `res.redirect()` to the FE is just navigation; the FE's first `GET /auth/me` round-trip reads the session.
+- **Email-domain spoofing via `email_verified=false`** → reject any payload where `email_verified !== true`. Google sets this on every ID token.
+- **Account-linking takeover** → when a Google email matches an existing user, we set `googleId` on that row. If the existing row is an Admin/Lead, a Google sign-in from a matching email would inherit that role. Mitigation: the email allowlist (`@ums.edu.vn` / `@dau.edu.vn`) is the perimeter — anyone with a `@ums.edu.vn` Google account is trusted as that identity. Document this loud.
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -199,7 +243,7 @@ This phase is purely additive — existing tests keep using `X-Mock-*` headers v
 
 ## E. Dependencies to add
 
-- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `cookie-parser`, `jsonwebtoken`, `bcryptjs`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`.
+- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `cookie-parser`, `jsonwebtoken`, `bcryptjs`, `google-auth-library`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`.
 - **Dev/test:** `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/multer`, `@types/cookie-parser`, `@types/jsonwebtoken`, `@types/bcryptjs`, `@types/supertest`, `vitest`, `supertest`, `@vitest/coverage-v8`, `prisma`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`.
 
 ## F. Rollback / safety

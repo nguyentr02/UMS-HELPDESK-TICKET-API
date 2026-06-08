@@ -183,6 +183,67 @@ export const paths: OpenAPIV3.PathsObject = {
       },
     },
   },
+  '/auth/google': {
+    get: {
+      tags: ['Auth'],
+      summary: 'Start Google OAuth — redirects to Google sign-in.',
+      description:
+        'Initiates the Authorization Code Flow. Generates a signed `state` (JWT carrying the sanitized `?next=` path), drops it in a short-lived `google_oauth_state` cookie scoped to the callback path, then `302`s the browser to Google\'s authorization URL. Browser-only — call by setting `window.location.href`, not via `fetch` (the redirect bypasses CORS).',
+      security: NO_AUTH,
+      parameters: [
+        {
+          name: 'next',
+          in: 'query',
+          required: false,
+          description: 'Path the FE wants to land on after the callback completes. Sanitized server-side (must start with `/`; rejects schemes + protocol-relative).',
+          schema: { type: 'string', example: '/tickets/new' },
+        },
+      ],
+      responses: {
+        '302': {
+          description: 'Redirect to `https://accounts.google.com/o/oauth2/v2/auth?…&state=<signed>`.',
+          headers: {
+            Location: {
+              description: 'Google authorization URL.',
+              schema: { type: 'string' },
+            },
+            'Set-Cookie': {
+              description: '`google_oauth_state=<JWT>; HttpOnly; SameSite=Lax; Path=/auth/google/callback; Max-Age=600`',
+              schema: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/auth/google/callback': {
+    get: {
+      tags: ['Auth'],
+      summary: 'Google OAuth callback — verifies, upserts user, sets session cookie.',
+      description:
+        'Google redirects the browser here with `?code=…&state=…`. Verifies the state (double-submit cookie + JWT signature), exchanges the code for an ID token, verifies the ID token against Google\'s JWKS, then **upserts** the user:\n\n' +
+        '1. **Found by `googleId`** — refresh `displayName` + `avatarUrl`, return that user.\n' +
+        '2. **Email matches an existing row** — link: set `googleId` on that row, keep role + departmentId + history.\n' +
+        '3. **No match** — create a new user with `role: \'SV\'`, `departmentId: null`.\n\n' +
+        'Domain allowlist: `@ums.edu.vn`, `@dau.edu.vn` only. On success, sets the `ums_session` cookie (same as `POST /auth/login`) and `302`s to `${FE_ORIGIN}${next}`. On any failure, `302`s to `${FE_ORIGIN}/login?error=<code>` so the FE can render a friendly error.',
+      security: NO_AUTH,
+      parameters: [
+        { name: 'code', in: 'query', required: false, schema: { type: 'string' }, description: 'Google authorization code (set on success).' },
+        { name: 'state', in: 'query', required: false, schema: { type: 'string' }, description: 'Echoed signed state — must match the cookie set by `/auth/google`.' },
+        { name: 'error', in: 'query', required: false, schema: { type: 'string' }, description: 'Set by Google when consent is denied (e.g., `access_denied`).' },
+      ],
+      responses: {
+        '302': {
+          description:
+            'Always a redirect. On success: `${FE_ORIGIN}${next}` + `Set-Cookie: ums_session=…; HttpOnly; Secure; SameSite=None`. On failure: `${FE_ORIGIN}/login?error=<code>` (codes: `invalid_state` · `google_verification_failed` · `domain_not_allowed` · `access_denied` · `unknown_error`).',
+          headers: {
+            Location: { schema: { type: 'string' } },
+            'Set-Cookie': SESSION_COOKIE_HEADER,
+          },
+        },
+      },
+    },
+  },
 
   '/healthz': {
     get: {

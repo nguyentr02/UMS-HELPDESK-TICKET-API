@@ -71,6 +71,11 @@ model User {
   /// bcrypt hash of the demo password. Nullable so existing rows are not invalidated
   /// by the migration; users with NULL cannot log in (closed-set demo personas).
   passwordHash String?
+  /// Google OAuth `sub` claim — set on first Google sign-in (or when an existing
+  /// email is linked to a Google account). Nullable so non-Google users stay valid.
+  googleId     String? @unique
+  /// Profile picture URL from Google (`picture` claim). Nullable; updated on each sign-in.
+  avatarUrl    String?
   displayName  String
   role         Role
   departmentId String?

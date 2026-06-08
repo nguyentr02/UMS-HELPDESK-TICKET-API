@@ -17,6 +17,17 @@ const EnvSchema = z.object({
   // Required in jwt mode. Example: "https://umshelpdesk.vercel.app,http://localhost:3000"
   CORS_ORIGIN: z.string().min(1).optional(),
 
+  // Google OAuth (Phase 12). Required in jwt mode — `/auth/google` routes
+  // construct/verify against these. CALLBACK_URL must match the URL
+  // allowlisted in Google Cloud Console.
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
+
+  // Where the BE redirects the browser after the Google callback succeeds.
+  // Required in jwt mode. Example: "https://umshelpdesk.vercel.app"
+  FE_ORIGIN: z.string().url().optional(),
+
   HELPDESK_ENABLED: z
     .enum(['true', 'false'])
     .default('true')
@@ -37,6 +48,18 @@ const EnvSchema = z.object({
 ).refine(
   (data) => data.AUTH_MODE !== 'jwt' || !!data.CORS_ORIGIN,
   { message: 'CORS_ORIGIN is required when AUTH_MODE=jwt', path: ['CORS_ORIGIN'] },
+).refine(
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.GOOGLE_CLIENT_ID,
+  { message: 'GOOGLE_CLIENT_ID is required when AUTH_MODE=jwt', path: ['GOOGLE_CLIENT_ID'] },
+).refine(
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.GOOGLE_CLIENT_SECRET,
+  { message: 'GOOGLE_CLIENT_SECRET is required when AUTH_MODE=jwt', path: ['GOOGLE_CLIENT_SECRET'] },
+).refine(
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.GOOGLE_CALLBACK_URL,
+  { message: 'GOOGLE_CALLBACK_URL is required when AUTH_MODE=jwt', path: ['GOOGLE_CALLBACK_URL'] },
+).refine(
+  (data) => data.AUTH_MODE !== 'jwt' || !!data.FE_ORIGIN,
+  { message: 'FE_ORIGIN is required when AUTH_MODE=jwt', path: ['FE_ORIGIN'] },
 ).refine(
   // Boot-time guard (FP §K): if the prod event driver is selected we MUST have
   // a token, otherwise the first publish would 500. Fail fast at startup.

@@ -1,14 +1,25 @@
+import { randomBytes } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import { ok } from '../lib/envelope.js';
-import { ValidationError } from '../lib/errors.js';
+import { UnauthenticatedError, ValidationError } from '../lib/errors.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import {
+  GOOGLE_OAUTH_STATE_COOKIE,
   SESSION_COOKIE,
+  buildGoogleAuthorizationUrl,
+  exchangeGoogleCode,
+  googleStateCookieOptions,
+  parseGoogleState,
+  sanitizeNextPath,
   sessionCookieOptions,
+  signGoogleState,
   signSessionJwt,
+  upsertGoogleUser,
   verifyCredentials,
+  verifyGoogleIdToken,
 } from '../services/AuthService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { loginRateLimiter } from '../middleware/rateLimitLogin.js';
@@ -63,3 +74,89 @@ authRouter.post('/auth/logout', (req: Request, res: Response) => {
 authRouter.get('/auth/me', requireAuth, (req: Request, res: Response) => {
   res.json(ok({ user: req.user }, req.requestId));
 });
+
+// ─── Google OAuth (Phase 12) ────────────────────────────────────────────────
+
+const FE_ORIGIN_FALLBACK = 'http://localhost:3000';
+
+/**
+ * `GET /auth/google` — initiates the OAuth Authorization Code Flow. Generates
+ * a signed `state` (carries `?next=` + a nonce, signed with JWT_SECRET), drops
+ * it in a short-lived HttpOnly cookie scoped to the callback path, then 302s
+ * the browser to Google's authorization URL.
+ */
+authRouter.get('/auth/google', (req: Request, res: Response) => {
+  const next = sanitizeNextPath(typeof req.query.next === 'string' ? req.query.next : null);
+  const nonce = randomBytes(16).toString('hex');
+  const state = signGoogleState(next, nonce);
+  res.cookie(GOOGLE_OAUTH_STATE_COOKIE, state, googleStateCookieOptions());
+  res.redirect(302, buildGoogleAuthorizationUrl(state));
+});
+
+/**
+ * `GET /auth/google/callback` — Google redirects here after the user grants
+ * consent (or denies). Verifies the signed state (double-submit cookie),
+ * exchanges the code for an ID token, verifies the ID token via Google's
+ * JWKS, upserts the user (domain-allowlisted), and sets the session cookie
+ * before redirecting back to the FE.
+ *
+ * Error pages: redirects back to `${FE_ORIGIN}/login?error=<code>` so the FE
+ * can show a friendly message instead of leaking raw 401/403 JSON to the
+ * browser address bar.
+ */
+authRouter.get(
+  '/auth/google/callback',
+  asyncHandler(async (req: Request, res: Response) => {
+    const feOrigin = env.FE_ORIGIN ?? FE_ORIGIN_FALLBACK;
+    const fail = (code: string) => {
+      res.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, { ...googleStateCookieOptions(), maxAge: undefined });
+      res.redirect(302, `${feOrigin}/login?error=${encodeURIComponent(code)}`);
+    };
+
+    // 1. Google may report an error directly (`?error=access_denied` etc.).
+    if (typeof req.query.error === 'string') {
+      return fail(req.query.error);
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : null;
+    const queryState = typeof req.query.state === 'string' ? req.query.state : null;
+    const cookieState =
+      (req as Request & { cookies?: Record<string, string> }).cookies?.[GOOGLE_OAUTH_STATE_COOKIE] ?? null;
+
+    if (!code || !queryState || !cookieState || queryState !== cookieState) {
+      return fail('invalid_state');
+    }
+
+    // 2. JWT-verify the state to extract `next` (and confirm we signed it).
+    let nextPath = '/';
+    try {
+      const claims = parseGoogleState(queryState);
+      nextPath = sanitizeNextPath(claims.next);
+    } catch {
+      return fail('invalid_state');
+    }
+
+    // 3. Exchange code → ID token → verified profile.
+    let profile;
+    try {
+      const idToken = await exchangeGoogleCode(code);
+      profile = await verifyGoogleIdToken(idToken);
+    } catch (err) {
+      return fail(err instanceof UnauthenticatedError ? 'google_verification_failed' : 'unknown_error');
+    }
+
+    // 4. Upsert + sign session.
+    let user;
+    try {
+      user = await upsertGoogleUser(prisma, profile);
+    } catch (err) {
+      // ForbiddenError (domain not allowlisted) → friendly error code.
+      const code = (err as { code?: string }).code === 'forbidden' ? 'domain_not_allowed' : 'unknown_error';
+      return fail(code);
+    }
+
+    res.clearCookie(GOOGLE_OAUTH_STATE_COOKIE, { ...googleStateCookieOptions(), maxAge: undefined });
+    res.cookie(SESSION_COOKIE, signSessionJwt(user), sessionCookieOptions());
+    res.redirect(302, `${feOrigin}${nextPath}`);
+  }),
+);

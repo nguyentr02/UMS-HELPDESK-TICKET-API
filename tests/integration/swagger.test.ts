@@ -101,7 +101,7 @@ describe('Swagger / OpenAPI (ISO §8.3)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('every operation has ≥1 example for a 2xx response or request body (ISO §8.3 item 5; binary streams exempt)', async () => {
+  it('every operation has ≥1 example for a 2xx/3xx response or request body (ISO §8.3 item 5; binary streams + redirect-only ops exempt)', async () => {
     const res = await request(app).get('/openapi.json');
     const spec = res.body as Record<string, unknown>;
     const paths = spec.paths as Record<string, PathItem>;
@@ -113,8 +113,9 @@ describe('Swagger / OpenAPI (ISO §8.3)', () => {
         if (!isOperation(op)) continue;
 
         const respMap = op.responses ?? {};
-        const has2xxExample = Object.entries(respMap).some(([status, r]) => {
-          if (!status.startsWith('2')) return false;
+        const hasSuccessExample = Object.entries(respMap).some(([status, r]) => {
+          // Success = 2xx (normal) OR 3xx (redirect-driven success, e.g. OAuth flows).
+          if (!status.startsWith('2') && !status.startsWith('3')) return false;
           const resolved = resolveResponse(spec, r);
           const content = resolved?.content ?? {};
           const mediaTypes = Object.keys(content);
@@ -122,12 +123,15 @@ describe('Swagger / OpenAPI (ISO §8.3)', () => {
           if (mediaTypes.length > 0 && mediaTypes.every((t) => t === 'application/octet-stream')) {
             return true;
           }
+          // Redirect-only ops (no body, only `Location`/`Set-Cookie` headers) are
+          // exempt — they document the redirect via header schemas instead.
+          if (status.startsWith('3') && mediaTypes.length === 0) return true;
           return Object.values(content).some((c) => c.example !== undefined);
         });
         const hasReqExample = Object.values(op.requestBody?.content ?? {}).some(
           (c) => c.example !== undefined,
         );
-        if (!has2xxExample && !hasReqExample) {
+        if (!hasSuccessExample && !hasReqExample) {
           missing.push(`${method.toUpperCase()} ${pathKey}: no example on success response or request body`);
         }
       }
