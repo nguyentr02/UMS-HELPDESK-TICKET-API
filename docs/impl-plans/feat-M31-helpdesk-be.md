@@ -233,6 +233,33 @@ Adds "Sign in with Google" alongside the email/password flow. Authorization Code
 - **Email-domain spoofing via `email_verified=false`** → reject any payload where `email_verified !== true`. Google sets this on every ID token.
 - **Account-linking takeover** → when a Google email matches an existing user, we set `googleId` on that row. If the existing row is an Admin/Lead, a Google sign-in from a matching email would inherit that role. Mitigation: the email allowlist (`@ums.edu.vn` / `@dau.edu.vn`) is the perimeter — anyone with a `@ums.edu.vn` Google account is trusted as that identity. Document this loud.
 
+### Phase 13 — Admin user directory  *(BE-S13 — new)*
+
+Read-only Admin view of every persisted `User`. Lets the Admin see who's in the system, how they signed up (password vs Google-linked), and which department + role they hold. **No mutations** — per the helpdesk-scope memory, departments / users / faculties are owned by other UMS modules; we only render what the BE has.
+
+**Decisions (locked):**
+- **List + per-user detail + filters + pagination.** Filters: `role`, `departmentId`, `search` (case-insensitive `displayName` OR `email` `ILIKE`).
+- **Fields per row**: `id`, `email`, `displayName`, `role`, `department { id, code, name } | null`. Sensitive fields stay server-side — never expose `passwordHash`, `ssoSubject`, or the raw `googleId` claim.
+- **Authorization**: Admin only. All other roles → `403 forbidden`.
+
+**Phase 13.A — service + routes + RBAC**
+- [ ] `services/UserService.ts` — `list({ role?, departmentId?, search?, page, pageSize })` returns `{ items, page, pageSize, total }`; `getById(id)` returns the same DTO shape (404 if missing). Pure read queries; no transactions.
+- [ ] `lib/dto.ts` — `USER_INCLUDE` (`department: true`) + `toUserDTO` (project out `passwordHash`, `ssoSubject`, `googleId`).
+- [ ] `routes/users.ts` — `GET /users` (Zod-validated query) + `GET /users/:id`. Both `requireAuth` + `requireRole('Admin')`.
+- [ ] `app.ts` — mount `usersRouter`.
+
+**Phase 13.B — tests**
+- [ ] `tests/integration/users.test.ts` — `M31-BE-S13-H1` Admin list returns all seeded personas; `H2` `?role=DeptStaff` filters; `H3` `?search=admin` matches; `H4` pagination (`?page=2&pageSize=2`); `H5` detail by id; `X1` SV → 403; `X2` Lead → 403 (Admin-only); `X3` detail 404 for unknown id; `X4` `?role=Invalid` → 422; the DTO never includes `passwordHash` or `ssoSubject`.
+- [ ] `tests/service/user-service.test.ts` — unit-ish coverage of the where-clause builder for each filter combination (driven against the test DB so we don't mock Prisma).
+
+**Phase 13.C — OpenAPI**
+- [ ] `openapi/components.ts` — `User` schema (DTO shape) + `UserListResponse` (`items[]` + paging).
+- [ ] `openapi/paths.ts` — document both routes with examples.
+
+**Phase 13 risk register**
+- **PII exposure** — never include `passwordHash`, `ssoSubject`, or raw `googleId` in the response. The DTO projection is the perimeter. A test asserts each forbidden key is absent.
+- **Search query injection** — Prisma's `contains` filter takes raw strings safely (parameterized SQL underneath). No risk of SQL injection.
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -260,6 +287,7 @@ Adds "Sign in with Google" alongside the email/password flow. Authorization Code
 | 1 | BE-S1 | `M31-BE-S1-*` |
 | 2 | BE-S2 | `M31-BE-S2-*` |
 | 2.5 | BE-S11 | `M31-BE-S11-*` |
+| 13 | BE-S13 | `M31-BE-S13-*` |
 | 3 | BE-S3 | `M31-BE-S3-*` |
 | 4 | BE-S4 | `M31-BE-S4-*` |
 | 5 | BE-S5 | `M31-BE-S5-*` |

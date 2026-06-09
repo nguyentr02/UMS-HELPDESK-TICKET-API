@@ -25,6 +25,7 @@ export const openApiSpec: OpenAPIV3.Document = {
     { name: 'Notifications', description: 'In-app notifications inbox (caller-scoped).' },
     { name: 'Jobs', description: 'Cron-invoked job endpoints (bearer-authenticated, not user-facing).' },
     { name: 'Analytics', description: 'Aggregated ticket counts (Helpdesk / Admin only).' },
+    { name: 'Users', description: 'Admin-only read-only user directory.' },
   ],
   components: { schemas, responses, securitySchemes },
   security: [{ SessionCookie: [] }],

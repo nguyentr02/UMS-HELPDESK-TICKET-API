@@ -1,8 +1,54 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma, Role } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import type { SessionUser } from '../middleware/auth.js';
 
 type AnyPrisma = typeof prisma | Prisma.TransactionClient;
+
+/** Public DTO shape served by `GET /users` and `GET /users/:id`. */
+export interface UserDTO {
+  id: string;
+  email: string;
+  displayName: string;
+  role: Role;
+  department: { id: string; code: string; name: string } | null;
+}
+
+export interface ListUsersQuery {
+  role?: Role;
+  departmentId?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface UserListResult {
+  items: UserDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+const USER_INCLUDE = {
+  department: { select: { id: true, code: true, name: true } },
+} as const satisfies Prisma.UserInclude;
+
+type UserWithDept = Prisma.UserGetPayload<{ include: typeof USER_INCLUDE }>;
+
+/**
+ * Project a user row to the public DTO. Sensitive fields (`passwordHash`,
+ * `ssoSubject`, `googleId`, `avatarUrl`, `isActive`, timestamps) are
+ * deliberately omitted — the perimeter test (`users.test.ts -X5`) asserts
+ * they never appear in the response.
+ */
+function toUserDTO(row: UserWithDept): UserDTO {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.displayName,
+    role: row.role,
+    department: row.department,
+  };
+}
 
 export const UserService = {
   /**
@@ -45,5 +91,56 @@ export const UserService = {
         departmentId,
       },
     });
+  },
+
+  /**
+   * Paged user directory — read-only, Admin-only consumer (route gates the
+   * authz; the service is permissive). Filters compose as AND. `search`
+   * is a case-insensitive substring match against `displayName` OR `email`.
+   */
+  async list(query: ListUsersQuery, client: AnyPrisma = prisma): Promise<UserListResult> {
+    const where: Prisma.UserWhereInput = {};
+    if (query.role) where.role = query.role;
+    if (query.departmentId) where.departmentId = query.departmentId;
+    if (query.search) {
+      const term = query.search.trim();
+      if (term.length > 0) {
+        where.OR = [
+          { displayName: { contains: term, mode: 'insensitive' } },
+          { email: { contains: term, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const safePageSize = Math.min(Math.max(query.pageSize, 1), 100);
+    const safePage = Math.max(query.page, 1);
+    const skip = (safePage - 1) * safePageSize;
+
+    const [rows, total] = await Promise.all([
+      client.user.findMany({
+        where,
+        include: USER_INCLUDE,
+        orderBy: [{ role: 'asc' }, { displayName: 'asc' }, { id: 'asc' }],
+        skip,
+        take: safePageSize,
+      }),
+      client.user.count({ where }),
+    ]);
+
+    return {
+      items: rows.map(toUserDTO),
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+    };
+  },
+
+  /** Read-only user lookup by id. Returns `null` when the user doesn't exist. */
+  async getById(id: string, client: AnyPrisma = prisma): Promise<UserDTO | null> {
+    const row = await client.user.findUnique({
+      where: { id },
+      include: USER_INCLUDE,
+    });
+    return row ? toUserDTO(row) : null;
   },
 };

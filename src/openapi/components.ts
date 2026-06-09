@@ -411,6 +411,41 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       },
     },
   },
+
+  Department: {
+    type: 'object',
+    required: ['id', 'code', 'name'],
+    properties: {
+      id: { type: 'string', example: 'dep-csvc' },
+      code: { type: 'string', example: 'CSVC' },
+      name: { type: 'string', example: 'Phòng Quản trị CSVC' },
+    },
+  },
+  User: {
+    type: 'object',
+    description: 'Public DTO served by `/users` and `/users/:id`. Excludes `passwordHash`, `ssoSubject`, `googleId`, `avatarUrl`, `isActive`, and timestamps by design.',
+    required: ['id', 'email', 'displayName', 'role', 'department'],
+    properties: {
+      id: { type: 'string', example: 'u-sv-1' },
+      email: { type: 'string', format: 'email', example: 'sv01@ums.edu.vn' },
+      displayName: { type: 'string', example: 'SV Nguyễn Văn A' },
+      role: { $ref: '#/components/schemas/Role' },
+      department: {
+        nullable: true,
+        allOf: [{ $ref: '#/components/schemas/Department' }],
+      },
+    },
+  },
+  UserListResponse: {
+    type: 'object',
+    required: ['items', 'page', 'pageSize', 'total'],
+    properties: {
+      items: { type: 'array', items: { $ref: '#/components/schemas/User' } },
+      page: { type: 'integer', minimum: 1 },
+      pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+      total: { type: 'integer', minimum: 0 },
+    },
+  },
 };
 
 function errorResponse(description: string, code: string, message: string): OpenAPIV3.ResponseObject {

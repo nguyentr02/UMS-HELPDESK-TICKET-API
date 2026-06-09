@@ -1002,4 +1002,85 @@ export const paths: OpenAPIV3.PathsObject = {
       },
     },
   },
+  '/users': {
+    get: {
+      tags: ['Users'],
+      summary: 'Admin-only user directory (paged, filterable).',
+      description:
+        'Returns every persisted user the Admin can see. Filters compose as AND: `role`, `departmentId`, `search` (case-insensitive substring on `displayName` OR `email`). Page size capped server-side at 100. Sensitive fields (`passwordHash`, `ssoSubject`, `googleId`, `avatarUrl`, `isActive`) are projected out — never returned.',
+      security: SECURITY,
+      parameters: [
+        { name: 'role', in: 'query', required: false, schema: { $ref: '#/components/schemas/Role' } },
+        { name: 'departmentId', in: 'query', required: false, schema: { type: 'string' } },
+        { name: 'search', in: 'query', required: false, schema: { type: 'string', maxLength: 200 } },
+        { name: 'page', in: 'query', required: false, schema: { type: 'integer', minimum: 1, default: 1 } },
+        { name: 'pageSize', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+      ],
+      responses: {
+        '200': {
+          description: 'Directory page.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/UserListResponse'),
+              example: envelope({
+                items: [
+                  {
+                    id: 'u-admin-1',
+                    email: 'admin@ums.edu.vn',
+                    displayName: 'Quản trị viên',
+                    role: 'Admin',
+                    department: null,
+                  },
+                  {
+                    id: 'u-staff-1',
+                    email: 'staff.csvc@ums.edu.vn',
+                    displayName: 'Phan Thị Hương',
+                    role: 'DeptStaff',
+                    department: { id: 'dep-csvc', code: 'CSVC', name: 'Phòng Quản trị CSVC' },
+                  },
+                ],
+                page: 1,
+                pageSize: 20,
+                total: 13,
+              }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '422': { $ref: '#/components/responses/Validation422' },
+      },
+    },
+  },
+  '/users/{id}': {
+    get: {
+      tags: ['Users'],
+      summary: 'Admin-only single user lookup.',
+      description: 'Returns a single user by id. Same DTO as the list endpoint — sensitive fields excluded.',
+      security: SECURITY,
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' }, example: 'u-sv-1' },
+      ],
+      responses: {
+        '200': {
+          description: 'User record.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/User'),
+              example: envelope({
+                id: 'u-sv-1',
+                email: 'sv01@ums.edu.vn',
+                displayName: 'SV Nguyễn Văn A',
+                role: 'SV',
+                department: null,
+              }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+      },
+    },
+  },
 };
