@@ -453,7 +453,13 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       'Admin-only user creation. `departmentId` is required when `role=DeptStaff`. ' +
       '`password` is optional — when omitted the user can only sign in via Google SSO.',
     properties: {
-      email: { type: 'string', format: 'email', maxLength: 200, example: 'newuser@ums.edu.vn' },
+      email: {
+        type: 'string',
+        format: 'email',
+        maxLength: 200,
+        description: 'Phải thuộc miền tổ chức: @ums.edu.vn hoặc @dau.edu.vn. Không nhận email cá nhân.',
+        example: 'newuser@ums.edu.vn',
+      },
       displayName: {
         type: 'string',
         minLength: 2,

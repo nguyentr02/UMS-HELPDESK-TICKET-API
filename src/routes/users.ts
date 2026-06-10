@@ -6,6 +6,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { UserService } from '../services/UserService.js';
+import { ALLOWED_EMAIL_DOMAINS_LABEL, isAllowedEmailDomain } from '../lib/email-domains.js';
 
 const ROLES = ['SV', 'GV', 'NV', 'HelpdeskAgent', 'HelpdeskLead', 'DeptStaff', 'Admin'] as const;
 
@@ -26,7 +27,13 @@ const ListQuery = z.object({
 // Empty string in `departmentId` / `password` is treated as "not provided" so
 // the FE can submit a partial form without juggling undefined vs '' itself.
 const CreateUserBody = z.object({
-  email: z.string().trim().toLowerCase().email('Email không hợp lệ').max(200),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('Email không hợp lệ')
+    .max(200)
+    .refine(isAllowedEmailDomain, `Email phải thuộc miền ${ALLOWED_EMAIL_DOMAINS_LABEL}`),
   displayName: z.string().trim().min(2, 'Tối thiểu 2 ký tự').max(200).regex(NAME_REGEX, NAME_ERROR),
   role: z.enum(ROLES),
   departmentId: z

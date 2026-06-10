@@ -273,6 +273,24 @@ describe('BE-S15 — Admin user creation', () => {
     expect(res.body.data.displayName).toBe('Nguyễn Thị Lệ Ước');
   });
 
+  it('M31-BE-S15-X9: personal email (gmail) → 422 with email field error', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'someone@gmail.com', displayName: 'Email Cá Nhân', role: 'SV' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.email).toBeTruthy();
+  });
+
+  it('M31-BE-S15-H5: @dau.edu.vn institutional email is accepted', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'newperson@dau.edu.vn', displayName: 'Người DAU', role: 'SV' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.email).toBe('newperson@dau.edu.vn');
+  });
+
   it('M31-BE-S15-X6: unknown departmentId → 422 with field error', async () => {
     const res = await request(app)
       .post('/users')

@@ -5,6 +5,11 @@ import type { PrismaClient } from '@prisma/client';
 import { OAuth2Client } from 'google-auth-library';
 import { env } from '../config/env.js';
 import { DisabledAccountError, ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
+import {
+  ALLOWED_EMAIL_DOMAINS_LABEL,
+  emailDomain,
+  isAllowedEmailDomain,
+} from '../lib/email-domains.js';
 import type { Role, SessionUser } from '../middleware/auth.js';
 
 /** Name of the auth cookie carried in every authenticated request. */
@@ -114,9 +119,6 @@ export const GOOGLE_OAUTH_STATE_COOKIE = 'google_oauth_state';
 
 /** 10 min — generous enough for the user to complete Google sign-in, short enough to keep CSRF window tight. */
 export const GOOGLE_STATE_TTL_SECONDS = 10 * 60;
-
-/** Email domains the Google login allows. Anything else → 403 at the callback. */
-const ALLOWED_EMAIL_DOMAINS = ['ums.edu.vn', 'dau.edu.vn'] as const;
 
 interface GoogleStateClaims extends JwtPayload {
   /** Sanitized `?next=` path the FE wants to land on after the callback. */
@@ -230,10 +232,9 @@ export async function upsertGoogleUser(
   prisma: PrismaClient,
   profile: VerifiedGoogleProfile,
 ): Promise<SessionUser> {
-  const domain = profile.email.split('@')[1] ?? '';
-  if (!(ALLOWED_EMAIL_DOMAINS as readonly string[]).includes(domain)) {
+  if (!isAllowedEmailDomain(profile.email)) {
     throw new ForbiddenError(
-      `Tài khoản Google thuộc miền @${domain} không được phép. Vui lòng dùng email @ums.edu.vn hoặc @dau.edu.vn.`,
+      `Tài khoản Google thuộc miền @${emailDomain(profile.email)} không được phép. Vui lòng dùng email ${ALLOWED_EMAIL_DOMAINS_LABEL}.`,
     );
   }
 
