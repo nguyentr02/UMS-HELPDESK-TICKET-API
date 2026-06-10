@@ -9,6 +9,12 @@ import { UserService } from '../services/UserService.js';
 
 const ROLES = ['SV', 'GV', 'NV', 'HelpdeskAgent', 'HelpdeskLead', 'DeptStaff', 'Admin'] as const;
 
+// Display name = Unicode letters (so Vietnamese diacritics like ễ ă ị ư work)
+// + combining marks + spaces only. No digits, no symbols. `\p{M}` covers
+// decomposed diacritics; the `u` flag is required for `\p{...}`.
+const NAME_REGEX = /^[\p{L}\p{M}\s]+$/u;
+const NAME_ERROR = 'Họ tên chỉ được chứa chữ cái và khoảng trắng';
+
 const ListQuery = z.object({
   role: z.enum(ROLES).optional(),
   departmentId: z.string().min(1).optional(),
@@ -21,7 +27,7 @@ const ListQuery = z.object({
 // the FE can submit a partial form without juggling undefined vs '' itself.
 const CreateUserBody = z.object({
   email: z.string().trim().toLowerCase().email('Email không hợp lệ').max(200),
-  displayName: z.string().trim().min(2, 'Tối thiểu 2 ký tự').max(200),
+  displayName: z.string().trim().min(2, 'Tối thiểu 2 ký tự').max(200).regex(NAME_REGEX, NAME_ERROR),
   role: z.enum(ROLES),
   departmentId: z
     .string()
@@ -42,7 +48,13 @@ const CreateUserBody = z.object({
 // dept; omitting the key keeps the current value. Empty strings collapse to
 // null for `departmentId` / `password` to match the create-body shape.
 const UpdateUserBody = z.object({
-  displayName: z.string().trim().min(2, 'Tối thiểu 2 ký tự').max(200).optional(),
+  displayName: z
+    .string()
+    .trim()
+    .min(2, 'Tối thiểu 2 ký tự')
+    .max(200)
+    .regex(NAME_REGEX, NAME_ERROR)
+    .optional(),
   role: z.enum(ROLES).optional(),
   departmentId: z
     .string()

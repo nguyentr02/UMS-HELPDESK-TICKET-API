@@ -246,6 +246,33 @@ describe('BE-S15 — Admin user creation', () => {
     expect(res.status).toBe(403);
   });
 
+  it('M31-BE-S15-X7: displayName with digits → 422 with field error', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'digit-name@ums.edu.vn', displayName: 'Nguyen Van 123', role: 'SV' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.displayName).toBeTruthy();
+  });
+
+  it('M31-BE-S15-X8: displayName with symbols → 422', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'sym-name@ums.edu.vn', displayName: 'John_Doe@', role: 'SV' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.displayName).toBeTruthy();
+  });
+
+  it('M31-BE-S15-H4: Vietnamese displayName with diacritics + spaces is accepted', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'viet-name@ums.edu.vn', displayName: 'Nguyễn Thị Lệ Ước', role: 'SV' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.displayName).toBe('Nguyễn Thị Lệ Ước');
+  });
+
   it('M31-BE-S15-X6: unknown departmentId → 422 with field error', async () => {
     const res = await request(app)
       .post('/users')
@@ -275,9 +302,9 @@ describe('BE-S16 — Admin user update + soft delete', () => {
     const res = await request(app)
       .patch('/users/u-sv-1')
       .set(adminHeaders)
-      .send({ displayName: 'SV Nguyễn Văn A (updated)' });
+      .send({ displayName: 'Nguyễn Văn A Đã Đổi' });
     expect(res.status).toBe(200);
-    expect(res.body.data.displayName).toBe('SV Nguyễn Văn A (updated)');
+    expect(res.body.data.displayName).toBe('Nguyễn Văn A Đã Đổi');
     expect(res.body.data.role).toBe(before?.role);
     // DTO keys shouldn't include sensitive fields.
     expect(Object.keys(res.body.data).sort()).toEqual(['department', 'displayName', 'email', 'id', 'role']);
@@ -348,6 +375,15 @@ describe('BE-S16 — Admin user update + soft delete', () => {
       .send({ role: 'DeptStaff' });
     expect(res.status).toBe(422);
     expect(res.body.error.fields?.departmentId).toBeTruthy();
+  });
+
+  it('M31-BE-S16-X9: PATCH displayName with digits → 422 with field error', async () => {
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ displayName: 'Tên 99' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.displayName).toBeTruthy();
   });
 
   it('M31-BE-S16-X4: PATCH unknown departmentId → 422', async () => {

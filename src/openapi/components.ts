@@ -454,7 +454,14 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       '`password` is optional — when omitted the user can only sign in via Google SSO.',
     properties: {
       email: { type: 'string', format: 'email', maxLength: 200, example: 'newuser@ums.edu.vn' },
-      displayName: { type: 'string', minLength: 2, maxLength: 200, example: 'Nguyễn Văn Mới' },
+      displayName: {
+        type: 'string',
+        minLength: 2,
+        maxLength: 200,
+        pattern: '^[\\p{L}\\p{M}\\s]+$',
+        description: 'Chỉ chữ cái (kể cả dấu tiếng Việt) và khoảng trắng — không số / ký tự đặc biệt.',
+        example: 'Nguyễn Văn Mới',
+      },
       role: { $ref: '#/components/schemas/Role' },
       departmentId: {
         type: 'string',
@@ -479,7 +486,14 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       'the dept; omitting the key keeps the current value. `password` (≥ 8 chars) ' +
       'replaces the bcrypt hash; omitted/null leaves the existing hash alone.',
     properties: {
-      displayName: { type: 'string', minLength: 2, maxLength: 200, example: 'Nguyễn Văn Mới (cập nhật)' },
+      displayName: {
+        type: 'string',
+        minLength: 2,
+        maxLength: 200,
+        pattern: '^[\\p{L}\\p{M}\\s]+$',
+        description: 'Chỉ chữ cái (kể cả dấu tiếng Việt) và khoảng trắng — không số / ký tự đặc biệt.',
+        example: 'Nguyễn Văn Mới',
+      },
       role: { $ref: '#/components/schemas/Role' },
       departmentId: { type: 'string', nullable: true, example: 'dep-csvc' },
       password: { type: 'string', nullable: true, minLength: 8, example: 'NewP@ssw0rd!' },
