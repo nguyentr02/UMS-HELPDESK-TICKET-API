@@ -292,6 +292,18 @@ erDiagram
 
 The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
 
+**User-management endpoints (Admin-only — scope exceptions, 2026-06):**
+
+| Method + path | Returns | Notes |
+|---|---|---|
+| `GET /users` | 200 `{ items, page, pageSize, total }` | Phase 13. Filters `role` / `departmentId` / `search`. Excludes soft-deleted (`isActive=false`). DTO never leaks `passwordHash` / `ssoSubject` / `googleId`. |
+| `GET /users/:id` | 200 `User` \| 404 | Phase 13. Permissive on `isActive` (no 404 mid-navigation). |
+| `POST /users` | 201 `User` | Phase 15. Institutional email only (`@ums.edu.vn`/`@dau.edu.vn`); name = letters+spaces; DeptStaff needs dept; password optional (blank ⇒ SSO-only). 409 on active-email dup; **revives** a deactivated-email row. |
+| `PATCH /users/:id` | 200 `User` \| 404 \| 422 | Phase 16. Updates displayName/role/dept/password. **Email immutable.** |
+| `DELETE /users/:id` | 200 `User` | Phase 16. Soft delete (`isActive=false`); 409 on self-target; history preserved. |
+
+> These step outside the helpdesk's bounded context (user lifecycle normally lives in M1/IAM); built for the practice/demo per explicit product decisions. See the role-permission matrix + `caira-dau-helpdesk-scope` memory.
+
 **Auth endpoints (demo build):**
 
 | Method + path | Body | Returns | Notes |
@@ -371,7 +383,12 @@ Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT ag
 | BE-S8 | Daily 09:00 reminder worker (bullmq) | cron `0 9 * * 1-5` TZ Asia/Ho_Chi_Minh; holiday-skip; idempotent dedupe; per-agent backlog query is one round-trip. |
 | BE-S9 | EventPublisher (logger adapter) + ticket lifecycle events | non-blocking publish; retries on failure; logger adapter prints the event shape; interface ready for ESB adapter. |
 | BE-S10 | Analytics summary endpoint | counts by severity/category/status, avg handling time; RBAC: Helpdesk/Admin/BGH only. |
+| BE-S11 | Demo auth: login / logout / me + cookie-JWT middleware | `ums_session` HttpOnly cookie; rate-limited login; opaque 401; idempotent logout. |
+| BE-S12 | Google OAuth login (Authorization Code Flow) | signed-state CSRF; domain allowlist; upsert by googleId/email; **deactivated accounts blocked from re-login** (2026-06-10). |
+| BE-S13 | Admin user directory (read-only) | Admin-only `GET /users[/:id]`; filters + pagination; DTO projection (no PII). |
+| BE-S15 | Admin user creation *(scope exception)* | institutional email; name rule; DeptStaff dept; optional password; revive deactivated email. |
+| BE-S16 | Admin user update + soft delete *(scope exception)* | PATCH (email immutable); soft delete `isActive=false`; no self-delete; deactivated hidden from list. |
 
 ---
 
-*Traceability: ISO M31 → BE Brief → this Feature Plan → 10 Stories (BE-S1…BE-S10) → Tasks. Next per process: **Step 4** — `/sc:test --design --persona-qa` to turn each Story's AC into BE test cases (vitest unit + service + supertest integration) before any code.*
+*Traceability: ISO M31 → BE Brief → this Feature Plan → Stories (BE-S1…BE-S16) → Tasks. Practice mode: stop at Step 7 (Test). BE-S12–S16 added 2026-06 (auth + user management); BE-S15/S16 are explicit scope exceptions documented inline.*

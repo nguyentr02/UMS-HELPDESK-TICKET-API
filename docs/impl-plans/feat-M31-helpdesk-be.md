@@ -260,6 +260,53 @@ Read-only Admin view of every persisted `User`. Lets the Admin see who's in the 
 - **PII exposure** — never include `passwordHash`, `ssoSubject`, or raw `googleId` in the response. The DTO projection is the perimeter. A test asserts each forbidden key is absent.
 - **Search query injection** — Prisma's `contains` filter takes raw strings safely (parameterized SQL underneath). No risk of SQL injection.
 
+### Phase 15 — Admin user creation  *(BE-S15 — new, 2026-06-09)*
+
+**Scope exception (explicit product decision):** user lifecycle normally lives in M1 (IAM). The user chose to build a real create flow *inside* Helpdesk for the practice/demo. This is the first of two such exceptions (see Phase 16 for update/delete). Read-only fetch (Phase 13) remains the long-term contract.
+
+**Decisions (locked):**
+- **`POST /users`**, Admin-only. Returns the same projected `User` DTO as Phase 13 (never `passwordHash` / `ssoSubject` / `googleId`).
+- **Email** must be lower-cased, unique, AND an institutional domain (`@ums.edu.vn` / `@dau.edu.vn` — the same allowlist that gates Google SSO, single-sourced in `lib/email-domains.ts`). Personal email → `422`.
+- **displayName**: 2–200 chars, Unicode letters + spaces only (`/^[\p{L}\p{M}\s]+$/u`) — Vietnamese diacritics OK, no digits/symbols.
+- **departmentId**: required only when `role=DeptStaff`; verified against a real dept (`422` otherwise).
+- **password**: optional. When set → bcrypt hash (cost 10). Blank → `passwordHash: null` ⇒ SSO-only account. `ssoSubject` gets a deterministic `local:<email>` placeholder.
+
+**Phase 15.A — service + route**
+- [x] `lib/email-domains.ts` (NEW) — `ALLOWED_EMAIL_DOMAINS`, `isAllowedEmailDomain`, label helpers. `AuthService` (Google SSO) refactored to import from here so SSO + create can't drift.
+- [x] `services/UserService.ts` — `create(input)`: domain/uniqueness/dept/password rules above; returns `UserDTO`.
+- [x] `routes/users.ts` — `POST /users` (`requireAuth` + `requireRole('Admin')`), Zod `CreateUserBody` (email domain refine, name regex, cross-field DeptStaff-dept rule).
+
+**Phase 15.B — tests** (`tests/integration/users.test.ts`)
+- [x] `M31-BE-S15-H1` happy create + password hashed + no PII leak; `H2` blank password ⇒ SSO-only (`passwordHash` null); `H3` DeptStaff + dept resolves on DTO; `H4` Vietnamese diacritics accepted; `H5` `@dau.edu.vn` accepted.
+- [x] `X1` duplicate (active) email → 409; `X2` DeptStaff w/o dept → 422; `X3` invalid email → 422; `X4` short password → 422; `X5` non-admin → 403; `X6` unknown dept → 422; `X7` name with digits → 422; `X8` name with symbols → 422; `X9` personal email (gmail) → 422.
+
+**Phase 15.C — OpenAPI**
+- [x] `CreateUserRequest` schema (email domain + name pattern documented) + `POST /users` op (201/401/403/409/422).
+
+### Phase 16 — Admin user update + soft delete  *(BE-S16 — new, 2026-06-10)*
+
+**Scope exception #2:** update + soft-delete inside Helpdesk. Email stays immutable (login identity belongs to M1/IAM). Re-activation is **not** self-service — only an Admin (re-create email → revive) or M1/IAM.
+
+**Decisions (locked):**
+- **`PATCH /users/:id`** — partial update of `displayName` / `role` / `departmentId` (null clears) / `password` (reset). Email immutable. Same name + dept invariants as create. `404` unknown, `422` invalid.
+- **`DELETE /users/:id`** — soft delete (`isActive=false`); idempotent; refuses self-target with `409` so the only Admin can't lock themselves out. Tickets/comments/events keep their FK (history preserved).
+- **List excludes deactivated** — `list()` filters `isActive: true`, so a deleted user disappears from the directory. `getById` stays permissive (no 404 mid-navigation).
+- **Revive on re-create** — `POST /users` with an email owned by a *deactivated* row reactivates + overwrites that row (keeps the id ⇒ history stays attached) instead of 409. An *active* email still 409s.
+- **SSO lockout for deactivated** — `upsertGoogleUser` throws `DisabledAccountError` (403, code `account_disabled`) for a soft-deleted account matched by `googleId` OR email, so a deleted Google user can't self-revive by logging in.
+
+**Phase 16.A — service + routes + errors**
+- [x] `lib/errors.ts` — `DisabledAccountError` (403, `account_disabled`), distinct from `ForbiddenError`.
+- [x] `services/UserService.ts` — `update(id, input)`, `deactivate(id, callerId)`; `create` revive branch; `list` `isActive` filter.
+- [x] `services/AuthService.ts` — `upsertGoogleUser` branches 1+2 throw `DisabledAccountError` when `!isActive`.
+- [x] `routes/users.ts` — `PATCH` + `DELETE /users/:id` (Admin-only). `routes/auth.ts` — callback maps `account_disabled` → `/login?error=account_disabled`.
+
+**Phase 16.B — tests**
+- [x] `users.test.ts`: `M31-BE-S16-H1..H4` update happy paths (displayName / password / role+dept / null-clear); `H5/H6` soft-delete + idempotent; `H7` deactivated absent from list; `H8` revive same row; `X1` 404; `X2` short pw; `X3` DeptStaff w/o dept; `X4` unknown dept; `X5/X8` non-admin 403; `X6` delete unknown 404; `X7` self-delete 409; `X9` name digits 422; `X10` active-email re-create 409.
+- [x] `auth-service-google.test.ts`: `M31-BE-S12-X2` deactivated-by-googleId blocked; `X3` deactivated-by-email blocked.
+
+**Phase 16.C — OpenAPI**
+- [x] `UpdateUserRequest` schema; `PATCH` (200/401/403/404/422) + `DELETE` (200/401/403/404/409) ops; `POST` description documents the revive path.
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -287,7 +334,10 @@ Read-only Admin view of every persisted `User`. Lets the Admin see who's in the 
 | 1 | BE-S1 | `M31-BE-S1-*` |
 | 2 | BE-S2 | `M31-BE-S2-*` |
 | 2.5 | BE-S11 | `M31-BE-S11-*` |
+| 12 | BE-S12 | `M31-BE-S12-*` (incl. `-X2/-X3` deactivated-account SSO lockout, 2026-06-10) |
 | 13 | BE-S13 | `M31-BE-S13-*` |
+| 15 | BE-S15 | `M31-BE-S15-*` (Admin create — scope exception, 2026-06-09) |
+| 16 | BE-S16 | `M31-BE-S16-*` (update + soft-delete + revive — scope exception, 2026-06-10) |
 | 3 | BE-S3 | `M31-BE-S3-*` |
 | 4 | BE-S4 | `M31-BE-S4-*` |
 | 5 | BE-S5 | `M31-BE-S5-*` |

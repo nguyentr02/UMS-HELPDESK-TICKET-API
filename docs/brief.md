@@ -67,6 +67,8 @@ All requests authenticated via the **demo login** (see §5): **email + password*
 - **In-app notification store** (`Notification` rows) + endpoints `GET /notifications`, `POST /:id/read`.
 - **Outbound event emission** — `EventPublisher` interface; ticket lifecycle events queued and published to ESB/data lake; non-blocking.
 - **Admin** endpoints: category tree (delete-guard for children / live tickets) + routing rules.
+- **Google OAuth login** (Authorization Code Flow, BE-mediated; signed-state CSRF; `@ums.edu.vn`/`@dau.edu.vn` allowlist; deactivated accounts blocked). *(BE-S12, added 2026-06)*
+- **Admin user management** *(scope exceptions, 2026-06)* — `GET /users[/:id]` directory (read-only), `POST /users` create, `PATCH /users/:id` update (email immutable), `DELETE /users/:id` soft delete. Institutional-email + name-format validation; deactivated users hidden from the list and blocked from SSO; re-creating a deactivated email revives the row. User lifecycle normally lives in M1/IAM — these were built for the practice/demo per explicit decision.
 - **Observability** — pino structured logs + `requestId` correlation; health endpoint; module Lớp-1 analytics summary.
 
 ### Out of scope

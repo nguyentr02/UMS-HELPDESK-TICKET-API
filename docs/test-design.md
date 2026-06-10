@@ -140,6 +140,26 @@
 - **X2** — Aggregation error (forced via a Prisma mock) → `500` with envelope `error.code='analytics_failed'` (no stack leaked).
 - **I1** *(supertest)* — seed 5 tickets across 2 categories, 3 departments, 2 severities → `GET /analytics/summary` returns the exact counts.
 
+### BE-S12 — Google OAuth login (Authorization Code Flow)
+- **H1** — `upsertGoogleUser` creates a new `SV` user when neither `googleId` nor email match; `ssoSubject='google:<sub>'`.
+- **H2** — Links by email to an existing row (preserves role + history); **H3** — links a Lead without demoting role.
+- **E1** — Returning sign-in refreshes `displayName` + `avatarUrl`; **E2** — `@dau.edu.vn` is allowlisted.
+- **X1** — Email outside the `@ums.edu.vn` / `@dau.edu.vn` allowlist → `ForbiddenError` (callback → `?error=domain_not_allowed`).
+- **X2** *(2026-06-10)* — a **deactivated** account matched by `googleId` → `DisabledAccountError` (callback → `?error=account_disabled`); **X3** — same when matched by email. Soft-delete can't be undone by self-re-login.
+- `sanitizeNextPath` unit cases — open-redirect guard (schemes, protocol-relative, non-`/` paths → `/`).
+
+### BE-S13 — Admin user directory (read-only)
+- **H1** — Admin `GET /users` lists all seeded personas; **H2** `?role=DeptStaff` filters; **H3** `?search=admin` matches displayName OR email; **H4** pagination slices; **H5** `GET /users/:id` returns one.
+- **X1** SV → 403; **X2** Lead → 403 (Admin-only); **X3** unknown id → 404; **X4** `?role=Invalid` → 422; **X5** response never includes `passwordHash` / `ssoSubject` / `googleId` / `avatarUrl`.
+
+### BE-S15 — Admin user creation *(scope exception, 2026-06-09)*
+- **H1** valid create + password bcrypt-hashed + no PII leak; **H2** blank password ⇒ SSO-only (`passwordHash` null); **H3** DeptStaff + dept resolves on DTO; **H4** Vietnamese diacritics accepted; **H5** `@dau.edu.vn` accepted.
+- **X1** duplicate active email → 409; **X2** DeptStaff w/o dept → 422; **X3** invalid email → 422; **X4** short password → 422; **X5** non-admin → 403; **X6** unknown dept → 422; **X7** name w/ digits → 422; **X8** name w/ symbols → 422; **X9** personal email (gmail) → 422.
+
+### BE-S16 — Admin user update + soft delete *(scope exception, 2026-06-10)*
+- **H1** PATCH displayName only; **H2** PATCH password (bcrypt verify); **H3** PATCH role=DeptStaff + dept; **H4** PATCH departmentId=null clears; **H5** DELETE soft-deactivates (history intact); **H6** DELETE idempotent; **H7** deactivated user absent from `GET /users`; **H8** re-create deactivated email revives same row.
+- **X1** PATCH unknown id → 404; **X2** short pw → 422; **X3** DeptStaff w/o dept → 422; **X4** unknown dept → 422; **X5/X8** non-admin → 403; **X6** delete unknown → 404; **X7** self-delete → 409; **X9** name digits → 422; **X10** active-email re-create → 409.
+
 ## 4. Coverage matrix (min-count compliance)
 
 | Story | Happy | Edge | Error | Integration | Meets Bảng 5.1 |
@@ -155,8 +175,13 @@
 | BE-S9 | 1 | 2 | 2 | 1 | ✅ |
 | BE-S10 | 1 | 2 | 2 | 1 | ✅ |
 | BE-S11 | 2 | 3 | 2 | 1 | ✅ |
+| BE-S12 | 3 | 2 | 3 | 1 | ✅ |
+| BE-S13 | 5 | 1 | 4 | — | ✅ |
+| BE-S15 | 5 | — | 9 | — | ✅ |
+| BE-S16 | 8 | — | 10 | — | ✅ |
 
-**Totals:** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**, every Story meeting the minimum.
+**Totals (v1, BE-S1…S11):** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**.
+**User-management + auth additions (BE-S12/S13/S15/S16, 2026-06):** the four stories above add ~50 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12), run as part of the same `npm test` suite. Full BE suite green at the latest sync.
 
 ## 5. Open testing questions
 
