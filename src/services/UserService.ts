@@ -181,11 +181,32 @@ export const UserService = {
 
     const existing = await client.user.findUnique({
       where: { email },
-      select: { id: true },
+      select: { id: true, isActive: true },
     });
-    if (existing) throw new ConflictError('Email đã được sử dụng');
+    // An ACTIVE row owns the email → real conflict. A DEACTIVATED row → revive
+    // it (email is `@unique`, so soft-delete keeps the address reserved; we
+    // reuse the row instead of 409'ing). The revived account keeps its id, so
+    // past tickets / comments / events stay attached.
+    if (existing && existing.isActive) throw new ConflictError('Email đã được sử dụng');
 
     const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : null;
+
+    if (existing && !existing.isActive) {
+      const revived = await client.user.update({
+        where: { id: existing.id },
+        data: {
+          displayName,
+          role: input.role,
+          departmentId,
+          passwordHash,
+          isActive: true,
+          // ssoSubject is left untouched — same email, same row; no need to
+          // disturb any existing SSO linkage.
+        },
+        include: USER_INCLUDE,
+      });
+      return toUserDTO(revived);
+    }
 
     // `ssoSubject` is `String @unique` in the schema (required, non-null) — set
     // a deterministic local-mode placeholder. Uniqueness is guaranteed by the

@@ -1055,10 +1055,12 @@ export const paths: OpenAPIV3.PathsObject = {
       tags: ['Users'],
       summary: 'Admin-only user creation.',
       description:
-        'Creates a user. Email is lower-cased + must be unique (409 on collision). ' +
-        'When `role=DeptStaff`, `departmentId` is required. Password is optional; when set ' +
-        'it is hashed with bcrypt. Users created without a password can only sign in via Google SSO. ' +
-        'Returns the projected `User` DTO — never the `passwordHash`.',
+        'Creates a user. Email is lower-cased. A collision with an ACTIVE user → 409. ' +
+        'A collision with a DEACTIVATED user → the existing row is REVIVED (reactivated + ' +
+        'its identity overwritten with the new values), keeping the same id so past tickets ' +
+        'stay attached. When `role=DeptStaff`, `departmentId` is required. Password is optional; ' +
+        'when set it is hashed with bcrypt. Users created without a password can only sign in via ' +
+        'Google SSO. Returns the projected `User` DTO — never the `passwordHash`.',
       security: SECURITY,
       requestBody: {
         required: true,

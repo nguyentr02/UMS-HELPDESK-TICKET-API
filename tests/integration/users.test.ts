@@ -448,4 +448,43 @@ describe('BE-S16 — Admin user update + soft delete', () => {
       .set(mockSsoHeaders({ id: 'u-hdl', role: 'HelpdeskLead' }));
     expect(res.status).toBe(403);
   });
+
+  it('M31-BE-S16-H8: re-creating a DEACTIVATED user\'s email revives the same row', async () => {
+    // Create → deactivate → re-create with the same email.
+    const created = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'revive-me@ums.edu.vn', displayName: 'Bản Gốc', role: 'SV' });
+    expect(created.status).toBe(201);
+    const originalId = created.body.data.id;
+
+    const del = await request(app).delete(`/users/${originalId}`).set(adminHeaders);
+    expect(del.status).toBe(200);
+
+    const recreated = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'Revive-Me@ums.edu.vn', displayName: 'Bản Hồi Sinh', role: 'GV' });
+    expect(recreated.status).toBe(201);
+    // Same row (id preserved), reactivated, identity overwritten.
+    expect(recreated.body.data.id).toBe(originalId);
+    expect(recreated.body.data.displayName).toBe('Bản Hồi Sinh');
+    expect(recreated.body.data.role).toBe('GV');
+
+    const stored = await testPrisma.user.findUnique({
+      where: { id: originalId },
+      select: { isActive: true, email: true },
+    });
+    expect(stored?.isActive).toBe(true);
+    expect(stored?.email).toBe('revive-me@ums.edu.vn');
+  });
+
+  it('M31-BE-S16-X10: re-creating an ACTIVE user\'s email still → 409', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'admin@ums.edu.vn', displayName: 'Trùng Active', role: 'SV' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('conflict');
+  });
 });
