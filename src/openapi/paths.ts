@@ -1128,5 +1128,80 @@ export const paths: OpenAPIV3.PathsObject = {
         '404': { $ref: '#/components/responses/NotFound404' },
       },
     },
+    patch: {
+      tags: ['Users'],
+      summary: 'Admin-only partial update.',
+      description:
+        'Updates `displayName` / `role` / `departmentId` / `password`. Email is intentionally immutable. ' +
+        'Passing `departmentId: null` clears the dept; omitting it keeps the current value. When the resolved ' +
+        'role is `DeptStaff` the resolved `departmentId` must be non-null (422 otherwise).',
+      security: SECURITY,
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' }, example: 'u-sv-1' },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' },
+            example: { displayName: 'SV Nguyễn Văn A (đã đổi tên)', role: 'SV' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Updated user record.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/User'),
+              example: envelope({
+                id: 'u-sv-1',
+                email: 'sv01@ums.edu.vn',
+                displayName: 'SV Nguyễn Văn A (đã đổi tên)',
+                role: 'SV',
+                department: null,
+              }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '422': { $ref: '#/components/responses/Validation422' },
+      },
+    },
+    delete: {
+      tags: ['Users'],
+      summary: 'Admin-only soft delete (deactivate).',
+      description:
+        'Sets `isActive=false`. Idempotent on already-inactive rows. Refuses with 409 if the caller targets ' +
+        'themselves — an Admin must not be able to lock themselves out. Tickets / comments / events / ' +
+        'notifications referencing this user are preserved (history intact).',
+      security: SECURITY,
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' }, example: 'u-sv-1' },
+      ],
+      responses: {
+        '200': {
+          description: 'Deactivated user record.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/User'),
+              example: envelope({
+                id: 'u-sv-1',
+                email: 'sv01@ums.edu.vn',
+                displayName: 'SV Nguyễn Văn A',
+                role: 'SV',
+                department: null,
+              }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+      },
+    },
   },
 };

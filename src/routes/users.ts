@@ -37,6 +37,27 @@ const CreateUserBody = z.object({
     .refine((v) => v == null || v.length >= 8, 'Mật khẩu tối thiểu 8 ký tự'),
 });
 
+// PATCH is a partial update — every field is optional. Email is intentionally
+// absent (login identity stays in M1/IAM). `departmentId: null` clears the
+// dept; omitting the key keeps the current value. Empty strings collapse to
+// null for `departmentId` / `password` to match the create-body shape.
+const UpdateUserBody = z.object({
+  displayName: z.string().trim().min(2, 'Tối thiểu 2 ký tự').max(200).optional(),
+  role: z.enum(ROLES).optional(),
+  departmentId: z
+    .string()
+    .trim()
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional(),
+  password: z
+    .string()
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional()
+    .refine((v) => v == null || v.length >= 8, 'Mật khẩu tối thiểu 8 ký tự'),
+});
+
 function zodToFields(error: z.ZodError): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const issue of error.issues) {
@@ -54,6 +75,12 @@ function parseListQuery(raw: unknown): z.infer<typeof ListQuery> {
 
 function parseCreateBody(raw: unknown): z.infer<typeof CreateUserBody> {
   const parsed = CreateUserBody.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(zodToFields(parsed.error));
+  return parsed.data;
+}
+
+function parseUpdateBody(raw: unknown): z.infer<typeof UpdateUserBody> {
+  const parsed = UpdateUserBody.safeParse(raw);
   if (!parsed.success) throw new ValidationError(zodToFields(parsed.error));
   return parsed.data;
 }
@@ -114,5 +141,44 @@ usersRouter.post(
       password: body.password ?? null,
     });
     res.status(201).json(ok(created, req.requestId));
+  }),
+);
+
+/**
+ * `PATCH /users/:id` — Admin-only partial update. Email is intentionally
+ * immutable here; identity changes belong to M1/IAM. See `UserService.update`
+ * for the validation matrix (404 / 422 cases).
+ */
+usersRouter.patch(
+  '/users/:id',
+  requireAuth,
+  requireRole('Admin'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = parseUpdateBody(req.body);
+    const updated = await UserService.update(req.params.id, {
+      displayName: body.displayName,
+      role: body.role,
+      // `null` clears the dept; `undefined` keeps it. Forward verbatim.
+      departmentId: body.departmentId,
+      password: body.password,
+    });
+    res.json(ok(updated, req.requestId));
+  }),
+);
+
+/**
+ * `DELETE /users/:id` — Admin-only soft delete. Sets `isActive=false`. 409 if
+ * the caller targets themselves (so the only Admin can't lock themselves out).
+ * 404 when the id doesn't exist. Idempotent on already-inactive rows.
+ */
+usersRouter.delete(
+  '/users/:id',
+  requireAuth,
+  requireRole('Admin'),
+  asyncHandler(async (req: Request, res: Response) => {
+    // req.user is guaranteed by requireAuth above.
+    const callerId = req.user!.id;
+    const result = await UserService.deactivate(req.params.id, callerId);
+    res.json(ok(result, req.requestId));
   }),
 );

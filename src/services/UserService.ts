@@ -1,7 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
-import { ConflictError, ValidationError } from '../lib/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../lib/errors.js';
 import type { SessionUser } from '../middleware/auth.js';
 
 type AnyPrisma = typeof prisma | Prisma.TransactionClient;
@@ -202,6 +202,102 @@ export const UserService = {
 
     return toUserDTO(created);
   },
+
+  /**
+   * Admin-only partial update. Validates:
+   *   - 404 if the user doesn't exist
+   *   - 422 if `password` is provided and shorter than 8 chars
+   *   - 422 if the resolved role is DeptStaff and the resolved departmentId is null
+   *   - 422 if a non-null departmentId is supplied that doesn't resolve to a real dept
+   *
+   * Email is **not** mutable — changing the login id is a separate concern
+   * (M1/IAM owns identity). `isActive` is also not exposed here; use
+   * `deactivate()` for the off path and a future endpoint for re-activation.
+   */
+  async update(
+    id: string,
+    input: UpdateUserInput,
+    client: AnyPrisma = prisma,
+  ): Promise<UserDTO> {
+    const current = await client.user.findUnique({
+      where: { id },
+      select: { id: true, role: true, departmentId: true },
+    });
+    if (!current) throw new NotFoundError('Không tìm thấy người dùng');
+
+    if (input.password != null && input.password.length < 8) {
+      throw new ValidationError({ password: 'Mật khẩu tối thiểu 8 ký tự' });
+    }
+
+    // Resolve departmentId: undefined => keep current; null => clear; string => verify.
+    let nextDeptId: string | null;
+    if (input.departmentId === undefined) {
+      nextDeptId = current.departmentId;
+    } else if (input.departmentId === null) {
+      nextDeptId = null;
+    } else {
+      const dept = await client.department.findUnique({
+        where: { id: input.departmentId },
+        select: { id: true },
+      });
+      if (!dept) throw new ValidationError({ departmentId: 'Phòng ban không tồn tại' });
+      nextDeptId = dept.id;
+    }
+
+    const nextRole = input.role ?? current.role;
+    if (nextRole === 'DeptStaff' && !nextDeptId) {
+      throw new ValidationError({ departmentId: 'Bắt buộc cho vai trò DeptStaff' });
+    }
+
+    const data: Prisma.UserUpdateInput = {};
+    if (input.displayName !== undefined) data.displayName = input.displayName.trim();
+    if (input.role !== undefined) data.role = input.role;
+    if (input.departmentId !== undefined) {
+      data.department = nextDeptId
+        ? { connect: { id: nextDeptId } }
+        : { disconnect: true };
+    }
+    if (input.password) {
+      data.passwordHash = await bcrypt.hash(input.password, 10);
+    }
+
+    const updated = await client.user.update({
+      where: { id },
+      data,
+      include: USER_INCLUDE,
+    });
+    return toUserDTO(updated);
+  },
+
+  /**
+   * Admin-only soft delete — sets `isActive=false`. Idempotent: deactivating
+   * an already-inactive user returns the same DTO. Refuses to deactivate the
+   * caller themselves (callerId) so an Admin can't lock themselves out.
+   *
+   * Tickets / comments / events / notifications keep their FK pointing at
+   * this row, so history is preserved even if the user can no longer log in.
+   */
+  async deactivate(
+    id: string,
+    callerId: string,
+    client: AnyPrisma = prisma,
+  ): Promise<UserDTO> {
+    if (id === callerId) {
+      throw new ConflictError('Không thể tự xóa chính bạn');
+    }
+    const target = await client.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundError('Không tìm thấy người dùng');
+
+    const updated = await client.user.update({
+      where: { id },
+      data: { isActive: false },
+      include: USER_INCLUDE,
+    });
+    return toUserDTO(updated);
+  },
 };
 
 export interface CreateUserInput {
@@ -210,5 +306,19 @@ export interface CreateUserInput {
   role: Role;
   departmentId?: string | null;
   /** Optional. Blank => user can only sign in via Google SSO. */
+  password?: string | null;
+}
+
+/**
+ * Partial update — every field is optional. Omitted fields keep their current
+ * DB value. Passing `null` for `departmentId` clears it (sets the column to NULL).
+ * Passing `null` or omitting `password` leaves the existing hash alone.
+ */
+export interface UpdateUserInput {
+  displayName?: string;
+  role?: Role;
+  /** `null` clears the dept; omit to keep the current value. */
+  departmentId?: string | null;
+  /** Sets a new bcrypt hash. Omit / null = unchanged. */
   password?: string | null;
 }

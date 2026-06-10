@@ -471,6 +471,20 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       },
     },
   },
+  UpdateUserRequest: {
+    type: 'object',
+    description:
+      'Admin-only partial update. Every field is optional. Email is intentionally ' +
+      'immutable — identity changes belong to M1/IAM. `departmentId: null` clears ' +
+      'the dept; omitting the key keeps the current value. `password` (≥ 8 chars) ' +
+      'replaces the bcrypt hash; omitted/null leaves the existing hash alone.',
+    properties: {
+      displayName: { type: 'string', minLength: 2, maxLength: 200, example: 'Nguyễn Văn Mới (cập nhật)' },
+      role: { $ref: '#/components/schemas/Role' },
+      departmentId: { type: 'string', nullable: true, example: 'dep-csvc' },
+      password: { type: 'string', nullable: true, minLength: 8, example: 'NewP@ssw0rd!' },
+    },
+  },
 };
 
 function errorResponse(description: string, code: string, message: string): OpenAPIV3.ResponseObject {

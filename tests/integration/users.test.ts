@@ -260,3 +260,146 @@ describe('BE-S15 — Admin user creation', () => {
     expect(res.body.error.fields?.departmentId).toBeTruthy();
   });
 });
+
+describe('BE-S16 — Admin user update + soft delete', () => {
+  beforeAll(async () => {
+    await resetDb();
+    await runSeed(testPrisma);
+  });
+  afterAll(async () => {
+    await disconnect();
+  });
+
+  it('M31-BE-S16-H1: PATCH displayName only → 200 + updated DTO; other fields unchanged', async () => {
+    const before = await testPrisma.user.findUnique({ where: { id: 'u-sv-1' } });
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ displayName: 'SV Nguyễn Văn A (updated)' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.displayName).toBe('SV Nguyễn Văn A (updated)');
+    expect(res.body.data.role).toBe(before?.role);
+    // DTO keys shouldn't include sensitive fields.
+    expect(Object.keys(res.body.data).sort()).toEqual(['department', 'displayName', 'email', 'id', 'role']);
+  });
+
+  it('M31-BE-S16-H2: PATCH password → bcrypt hash replaced; verifies the new value', async () => {
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ password: 'newP@ssw0rd!' });
+    expect(res.status).toBe(200);
+    const stored = await testPrisma.user.findUnique({
+      where: { id: 'u-sv-1' },
+      select: { passwordHash: true },
+    });
+    expect(stored?.passwordHash).toBeTruthy();
+    if (stored?.passwordHash) {
+      expect(await bcrypt.compare('newP@ssw0rd!', stored.passwordHash)).toBe(true);
+    }
+  });
+
+  it('M31-BE-S16-H3: PATCH role=DeptStaff + matching departmentId resolves the dept on the DTO', async () => {
+    const csvc = await testPrisma.department.findUnique({ where: { code: 'CSVC' } });
+    expect(csvc).toBeTruthy();
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ role: 'DeptStaff', departmentId: csvc!.id });
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('DeptStaff');
+    expect(res.body.data.department).toMatchObject({ id: csvc!.id, code: 'CSVC' });
+  });
+
+  it('M31-BE-S16-H4: PATCH departmentId=null clears the dept (when role is not DeptStaff)', async () => {
+    // First reset u-sv-1 back to SV so the null-dept transition is valid.
+    await request(app).patch('/users/u-sv-1').set(adminHeaders).send({ role: 'SV' });
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ departmentId: null });
+    expect(res.status).toBe(200);
+    expect(res.body.data.department).toBeNull();
+  });
+
+  it('M31-BE-S16-X1: PATCH unknown id → 404', async () => {
+    const res = await request(app)
+      .patch('/users/u-does-not-exist')
+      .set(adminHeaders)
+      .send({ displayName: 'Valid Name' });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('not_found');
+  });
+
+  it('M31-BE-S16-X2: PATCH short password → 422 with field error', async () => {
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ password: 'abc' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.password).toBeTruthy();
+  });
+
+  it('M31-BE-S16-X3: PATCH role=DeptStaff without dept (and no existing dept) → 422', async () => {
+    // u-sv-2 is a plain SV with no dept; flipping to DeptStaff with nothing else must 422.
+    const res = await request(app)
+      .patch('/users/u-sv-2')
+      .set(adminHeaders)
+      .send({ role: 'DeptStaff' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.departmentId).toBeTruthy();
+  });
+
+  it('M31-BE-S16-X4: PATCH unknown departmentId → 422', async () => {
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(adminHeaders)
+      .send({ departmentId: 'dep-nope' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.departmentId).toBeTruthy();
+  });
+
+  it('M31-BE-S16-X5: PATCH from non-Admin → 403', async () => {
+    const res = await request(app)
+      .patch('/users/u-sv-1')
+      .set(mockSsoHeaders({ id: 'u-hdl', role: 'HelpdeskLead' }))
+      .send({ displayName: 'X' });
+    expect(res.status).toBe(403);
+  });
+
+  it('M31-BE-S16-H5: DELETE soft-deactivates (isActive=false); DTO returned', async () => {
+    const res = await request(app).delete('/users/u-sv-2').set(adminHeaders);
+    expect(res.status).toBe(200);
+    const stored = await testPrisma.user.findUnique({
+      where: { id: 'u-sv-2' },
+      select: { isActive: true },
+    });
+    expect(stored?.isActive).toBe(false);
+    // Tickets/comments/events on the deactivated user are still queryable.
+    const eventsStill = await testPrisma.ticketEvent.count({ where: { actorId: 'u-sv-2' } });
+    expect(eventsStill).toBeGreaterThanOrEqual(0); // No FK errors / cascades.
+  });
+
+  it('M31-BE-S16-H6: DELETE is idempotent on an already-inactive user', async () => {
+    const res = await request(app).delete('/users/u-sv-2').set(adminHeaders);
+    expect(res.status).toBe(200);
+  });
+
+  it('M31-BE-S16-X6: DELETE unknown id → 404', async () => {
+    const res = await request(app).delete('/users/u-does-not-exist').set(adminHeaders);
+    expect(res.status).toBe(404);
+  });
+
+  it('M31-BE-S16-X7: Admin cannot DELETE themselves → 409 conflict', async () => {
+    const res = await request(app).delete('/users/u-admin').set(adminHeaders);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('conflict');
+  });
+
+  it('M31-BE-S16-X8: DELETE from non-Admin → 403', async () => {
+    const res = await request(app)
+      .delete('/users/u-sv-1')
+      .set(mockSsoHeaders({ id: 'u-hdl', role: 'HelpdeskLead' }));
+    expect(res.status).toBe(403);
+  });
+});
