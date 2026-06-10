@@ -4,7 +4,7 @@ import type { CookieOptions } from 'express';
 import type { PrismaClient } from '@prisma/client';
 import { OAuth2Client } from 'google-auth-library';
 import { env } from '../config/env.js';
-import { ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
+import { DisabledAccountError, ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
 import type { Role, SessionUser } from '../middleware/auth.js';
 
 /** Name of the auth cookie carried in every authenticated request. */
@@ -240,6 +240,11 @@ export async function upsertGoogleUser(
   // 1. By googleId — returning user.
   const byGoogleId = await prisma.user.findUnique({ where: { googleId: profile.googleId } });
   if (byGoogleId) {
+    // A deactivated (soft-deleted) account must not be able to sign back in via
+    // SSO — that would defeat the Admin's delete. Re-enabling is an Admin action
+    // (re-create the email → revive) or an M1/IAM action, never a self-service
+    // re-login. Mirrors the `isActive: true` filter on the password path.
+    if (!byGoogleId.isActive) throw new DisabledAccountError();
     const refreshed = await prisma.user.update({
       where: { id: byGoogleId.id },
       data: {
@@ -258,6 +263,8 @@ export async function upsertGoogleUser(
   // 2. By email — link the existing row to this Google account.
   const byEmail = await prisma.user.findUnique({ where: { email: profile.email } });
   if (byEmail) {
+    // Same guard as branch 1: a deactivated row must not be revived by a login.
+    if (!byEmail.isActive) throw new DisabledAccountError();
     const linked = await prisma.user.update({
       where: { id: byEmail.id },
       data: {

@@ -32,6 +32,14 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/** A login attempt against a soft-deleted (deactivated) account. Distinct from
+ *  `ForbiddenError` so the Google callback can map it to its own FE message. */
+export class DisabledAccountError extends AppError {
+  constructor(message = 'Tài khoản đã bị vô hiệu hóa') {
+    super(403, 'account_disabled', message);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = 'Không tìm thấy') {
     super(404, 'not_found', message);

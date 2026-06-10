@@ -150,8 +150,14 @@ authRouter.get(
     try {
       user = await upsertGoogleUser(prisma, profile);
     } catch (err) {
-      // ForbiddenError (domain not allowlisted) → friendly error code.
-      const code = (err as { code?: string }).code === 'forbidden' ? 'domain_not_allowed' : 'unknown_error';
+      // Map the controlled errors to friendly FE codes.
+      const errCode = (err as { code?: string }).code;
+      const code =
+        errCode === 'account_disabled'
+          ? 'account_disabled'
+          : errCode === 'forbidden'
+            ? 'domain_not_allowed'
+            : 'unknown_error';
       return fail(code);
     }
 

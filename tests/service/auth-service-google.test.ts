@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { sanitizeNextPath, upsertGoogleUser } from '../../src/services/AuthService';
-import { ForbiddenError } from '../../src/lib/errors';
+import { DisabledAccountError, ForbiddenError } from '../../src/lib/errors';
 import { disconnect, resetDb, testPrisma } from '../helpers/test-db';
 import { runSeed } from '../../prisma/seed';
 
@@ -129,6 +129,43 @@ describe('AuthService — Google OAuth (BE-S12)', () => {
         avatarUrl: null,
       });
       expect(result.role).toBe('SV');
+    });
+
+    it('M31-BE-S12-X2: a DEACTIVATED account matched by googleId cannot sign back in', async () => {
+      // First sign-in links the Google id, then Admin soft-deletes the row.
+      const first = await upsertGoogleUser(testPrisma, {
+        googleId: 'g-disabled',
+        email: allowed('disabled-by-id'),
+        displayName: 'Will Be Disabled',
+        avatarUrl: null,
+      });
+      await testPrisma.user.update({ where: { id: first.id }, data: { isActive: false } });
+
+      // Re-login via the same googleId must be refused, not silently revived.
+      await expect(
+        upsertGoogleUser(testPrisma, {
+          googleId: 'g-disabled',
+          email: allowed('disabled-by-id'),
+          displayName: 'Trying Again',
+          avatarUrl: null,
+        }),
+      ).rejects.toBeInstanceOf(DisabledAccountError);
+    });
+
+    it('M31-BE-S12-X3: a DEACTIVATED account matched by email cannot sign in via Google', async () => {
+      // Seeded persona u-sv-1 (sv01@ums.edu.vn) has no googleId yet. Deactivate it,
+      // then a first-time Google sign-in for that email must be refused (would
+      // otherwise link + revive a deleted account).
+      await testPrisma.user.update({ where: { id: 'u-sv-1' }, data: { isActive: false } });
+
+      await expect(
+        upsertGoogleUser(testPrisma, {
+          googleId: 'g-email-link',
+          email: 'sv01@ums.edu.vn',
+          displayName: 'Sneaky Relink',
+          avatarUrl: null,
+        }),
+      ).rejects.toBeInstanceOf(DisabledAccountError);
     });
   });
 });
