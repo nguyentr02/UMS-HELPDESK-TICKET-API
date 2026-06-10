@@ -1,5 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
+import { ConflictError, ValidationError } from '../lib/errors.js';
 import type { SessionUser } from '../middleware/auth.js';
 
 type AnyPrisma = typeof prisma | Prisma.TransactionClient;
@@ -143,4 +145,70 @@ export const UserService = {
     });
     return row ? toUserDTO(row) : null;
   },
+
+  /**
+   * Admin-only user creation. The route gates authz; this service enforces
+   * the data invariants:
+   *   - email is lower-cased and must be unique (409)
+   *   - role=DeptStaff requires a departmentId (422 field error)
+   *   - when departmentId is provided it must resolve to a real dept (422)
+   *   - password is optional; when set, hashed with bcrypt (cost 10).
+   *     Blank password = SSO-only login (verifyCredentials returns 401).
+   */
+  async create(
+    input: CreateUserInput,
+    client: AnyPrisma = prisma,
+  ): Promise<UserDTO> {
+    const email = input.email.trim().toLowerCase();
+    const displayName = input.displayName.trim();
+
+    if (input.role === 'DeptStaff' && !input.departmentId) {
+      throw new ValidationError({ departmentId: 'Bắt buộc cho vai trò DeptStaff' });
+    }
+
+    let departmentId: string | null = null;
+    if (input.departmentId) {
+      const dept = await client.department.findUnique({
+        where: { id: input.departmentId },
+        select: { id: true },
+      });
+      if (!dept) throw new ValidationError({ departmentId: 'Phòng ban không tồn tại' });
+      departmentId = dept.id;
+    }
+
+    const existing = await client.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictError('Email đã được sử dụng');
+
+    const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : null;
+
+    // `ssoSubject` is `String @unique` in the schema (required, non-null) — set
+    // a deterministic local-mode placeholder. Uniqueness is guaranteed by the
+    // already-unique email; the `local:` prefix keeps it distinct from real
+    // SSO subjects ("mock:<id>" used by tests / "google:<sub>" used by OAuth).
+    const created = await client.user.create({
+      data: {
+        email,
+        displayName,
+        role: input.role,
+        departmentId,
+        passwordHash,
+        ssoSubject: `local:${email}`,
+      },
+      include: USER_INCLUDE,
+    });
+
+    return toUserDTO(created);
+  },
 };
+
+export interface CreateUserInput {
+  email: string;
+  displayName: string;
+  role: Role;
+  departmentId?: string | null;
+  /** Optional. Blank => user can only sign in via Google SSO. */
+  password?: string | null;
+}

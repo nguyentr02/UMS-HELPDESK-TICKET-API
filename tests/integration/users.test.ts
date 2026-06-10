@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { createTestApp } from '../helpers/app-factory';
 import { mockSsoHeaders } from '../helpers/sso-headers';
@@ -112,5 +113,150 @@ describe('BE-S13 — Admin user directory', () => {
     expect(Object.keys(detail.body.data)).not.toContain('ssoSubject');
     expect(Object.keys(detail.body.data)).not.toContain('googleId');
     expect(Object.keys(detail.body.data)).not.toContain('avatarUrl');
+  });
+});
+
+describe('BE-S15 — Admin user creation', () => {
+  beforeAll(async () => {
+    await resetDb();
+    await runSeed(testPrisma);
+  });
+  afterAll(async () => {
+    await disconnect();
+  });
+
+  it('M31-BE-S15-H1: Admin POST /users with valid body → 201 + DTO; password hashed; no leak', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'CreatedByAdmin@ums.edu.vn',
+        displayName: 'Người dùng mới',
+        role: 'SV',
+        password: 'sup3rsecret!',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.error).toBeNull();
+    expect(res.body.data.email).toBe('createdbyadmin@ums.edu.vn');
+    expect(res.body.data.displayName).toBe('Người dùng mới');
+    expect(res.body.data.role).toBe('SV');
+    expect(Object.keys(res.body.data).sort()).toEqual(['department', 'displayName', 'email', 'id', 'role']);
+
+    // Round-trip: the stored hash must verify the original password.
+    const stored = await testPrisma.user.findUnique({
+      where: { id: res.body.data.id },
+      select: { passwordHash: true },
+    });
+    expect(stored?.passwordHash).toBeTruthy();
+    if (stored?.passwordHash) {
+      expect(await bcrypt.compare('sup3rsecret!', stored.passwordHash)).toBe(true);
+    }
+  });
+
+  it('M31-BE-S15-H2: omitting password creates an SSO-only user (passwordHash null)', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'sso-only@ums.edu.vn',
+        displayName: 'Chỉ SSO',
+        role: 'NV',
+      });
+    expect(res.status).toBe(201);
+    const stored = await testPrisma.user.findUnique({
+      where: { id: res.body.data.id },
+      select: { passwordHash: true },
+    });
+    expect(stored?.passwordHash).toBeNull();
+  });
+
+  it('M31-BE-S15-H3: DeptStaff role with departmentId resolves the dept on the DTO', async () => {
+    // Depts use @default(cuid()) so we can't hard-code the id — resolve by code.
+    const csvc = await testPrisma.department.findUnique({ where: { code: 'CSVC' } });
+    expect(csvc).toBeTruthy();
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'deptstaff-new@ums.edu.vn',
+        displayName: 'NV phòng mới',
+        role: 'DeptStaff',
+        departmentId: csvc!.id,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data.role).toBe('DeptStaff');
+    expect(res.body.data.department).toMatchObject({ id: csvc!.id, code: 'CSVC' });
+  });
+
+  it('M31-BE-S15-X1: duplicate email → 409 conflict', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'admin@ums.edu.vn', // seeded admin
+        displayName: 'Trùng',
+        role: 'SV',
+      });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('conflict');
+  });
+
+  it('M31-BE-S15-X2: role=DeptStaff without departmentId → 422 with field error', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'no-dept@ums.edu.vn',
+        displayName: 'Không phòng',
+        role: 'DeptStaff',
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('validation_error');
+    expect(res.body.error.fields?.departmentId).toBeTruthy();
+  });
+
+  it('M31-BE-S15-X3: invalid email → 422', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({ email: 'not-an-email', displayName: 'X', role: 'SV' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('validation_error');
+  });
+
+  it('M31-BE-S15-X4: short password → 422 with field error', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'short-pw@ums.edu.vn',
+        displayName: 'Mật khẩu ngắn',
+        role: 'SV',
+        password: 'abc',
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.password).toBeTruthy();
+  });
+
+  it('M31-BE-S15-X5: non-Admin (HelpdeskLead) → 403', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(mockSsoHeaders({ id: 'u-hdl', role: 'HelpdeskLead' }))
+      .send({ email: 'forbidden@ums.edu.vn', displayName: 'Cấm', role: 'SV' });
+    expect(res.status).toBe(403);
+  });
+
+  it('M31-BE-S15-X6: unknown departmentId → 422 with field error', async () => {
+    const res = await request(app)
+      .post('/users')
+      .set(adminHeaders)
+      .send({
+        email: 'bad-dept@ums.edu.vn',
+        displayName: 'Sai phòng',
+        role: 'DeptStaff',
+        departmentId: 'dep-does-not-exist',
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields?.departmentId).toBeTruthy();
   });
 });

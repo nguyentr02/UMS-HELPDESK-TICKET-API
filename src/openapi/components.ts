@@ -446,6 +446,31 @@ export const schemas: Record<string, OpenAPIV3.SchemaObject> = {
       total: { type: 'integer', minimum: 0 },
     },
   },
+  CreateUserRequest: {
+    type: 'object',
+    required: ['email', 'displayName', 'role'],
+    description:
+      'Admin-only user creation. `departmentId` is required when `role=DeptStaff`. ' +
+      '`password` is optional — when omitted the user can only sign in via Google SSO.',
+    properties: {
+      email: { type: 'string', format: 'email', maxLength: 200, example: 'newuser@ums.edu.vn' },
+      displayName: { type: 'string', minLength: 2, maxLength: 200, example: 'Nguyễn Văn Mới' },
+      role: { $ref: '#/components/schemas/Role' },
+      departmentId: {
+        type: 'string',
+        nullable: true,
+        example: 'dep-csvc',
+        description: 'Required when `role=DeptStaff`; optional otherwise. Empty string treated as null.',
+      },
+      password: {
+        type: 'string',
+        nullable: true,
+        minLength: 8,
+        example: 'P@ssw0rd!',
+        description: 'Optional. ≥ 8 chars when set. Blank ⇒ SSO-only.',
+      },
+    },
+  },
 };
 
 function errorResponse(description: string, code: string, message: string): OpenAPIV3.ResponseObject {

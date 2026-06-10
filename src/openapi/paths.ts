@@ -1051,6 +1051,52 @@ export const paths: OpenAPIV3.PathsObject = {
         '422': { $ref: '#/components/responses/Validation422' },
       },
     },
+    post: {
+      tags: ['Users'],
+      summary: 'Admin-only user creation.',
+      description:
+        'Creates a user. Email is lower-cased + must be unique (409 on collision). ' +
+        'When `role=DeptStaff`, `departmentId` is required. Password is optional; when set ' +
+        'it is hashed with bcrypt. Users created without a password can only sign in via Google SSO. ' +
+        'Returns the projected `User` DTO — never the `passwordHash`.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/CreateUserRequest' },
+            example: {
+              email: 'newuser@ums.edu.vn',
+              displayName: 'Nguyễn Văn Mới',
+              role: 'SV',
+              departmentId: null,
+              password: null,
+            },
+          },
+        },
+      },
+      responses: {
+        '201': {
+          description: 'User created.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/User'),
+              example: envelope({
+                id: 'cluxyz0000001',
+                email: 'newuser@ums.edu.vn',
+                displayName: 'Nguyễn Văn Mới',
+                role: 'SV',
+                department: null,
+              }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+      },
+    },
   },
   '/users/{id}': {
     get: {
