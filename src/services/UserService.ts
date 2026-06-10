@@ -101,7 +101,10 @@ export const UserService = {
    * is a case-insensitive substring match against `displayName` OR `email`.
    */
   async list(query: ListUsersQuery, client: AnyPrisma = prisma): Promise<UserListResult> {
-    const where: Prisma.UserWhereInput = {};
+    // Soft-deleted users (isActive=false via `deactivate`) are hidden from the
+    // directory — a "deleted" user must disappear from the list. There's no
+    // re-activation path inside Helpdesk; that lives in M1/IAM.
+    const where: Prisma.UserWhereInput = { isActive: true };
     if (query.role) where.role = query.role;
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.search) {

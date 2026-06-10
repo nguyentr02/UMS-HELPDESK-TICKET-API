@@ -385,6 +385,16 @@ describe('BE-S16 — Admin user update + soft delete', () => {
     expect(res.status).toBe(200);
   });
 
+  it('M31-BE-S16-H7: a deactivated user no longer appears in GET /users', async () => {
+    // u-sv-2 was soft-deleted in H5 above.
+    const res = await request(app).get('/users').query({ pageSize: 100 }).set(adminHeaders);
+    expect(res.status).toBe(200);
+    const ids = res.body.data.items.map((u: { id: string }) => u.id);
+    expect(ids).not.toContain('u-sv-2');
+    // A still-active user is unaffected.
+    expect(ids).toContain('u-admin');
+  });
+
   it('M31-BE-S16-X6: DELETE unknown id → 404', async () => {
     const res = await request(app).delete('/users/u-does-not-exist').set(adminHeaders);
     expect(res.status).toBe(404);
