@@ -37,6 +37,19 @@ const commentBody = z.object({
   attachments: attachmentsArraySchema,
 });
 
+// DeptStaff close request — a proof note (required) + optional images.
+const requestCloseBody = z.object({
+  note: z.string().trim().min(1, 'Cần mô tả công việc đã hoàn thành').max(5000),
+  attachments: attachmentsArraySchema,
+});
+// Approve close — optional closing reason. Refuse close — reason required.
+const approveCloseBody = z.object({
+  reason: z.string().trim().min(1).max(2000).optional(),
+});
+const refuseCloseBody = z.object({
+  reason: z.string().trim().min(1, 'Cần lý do từ chối').max(2000),
+});
+
 const createBody = z.object({
   title: z.string().trim().min(3, 'Tiêu đề tối thiểu 3 ký tự').max(200),
   description: z.string().trim().min(5, 'Mô tả tối thiểu 5 ký tự').max(5000),
@@ -161,6 +174,53 @@ ticketsRouter.post(
   zodValidate(closeBody),
   asyncHandler(async (req, res) => {
     const ticket = await TicketService.close(req.params.id, req.body.note, req.user!);
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// DeptStaff requests close with proof (comment + optional images) — multipart,
+// mirroring the comment endpoint. Status → CloseRequested.
+ticketsRouter.post(
+  '/tickets/:id/request-close',
+  requireAuth,
+  uploadAttachments,
+  zodValidate(requestCloseBody),
+  asyncHandler(async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined)?.map((f) => ({
+      originalname: f.originalname,
+      mimetype: f.mimetype,
+      buffer: f.buffer,
+      size: f.size,
+    }));
+    const ticket = await TicketService.requestClose(
+      req.params.id,
+      req.body.note,
+      files,
+      req.body.attachments,
+      req.user!,
+    );
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// Owning Agent/Lead approves a pending close request → Closed.
+ticketsRouter.post(
+  '/tickets/:id/approve-close',
+  requireAuth,
+  zodValidate(approveCloseBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.approveClose(req.params.id, req.body.reason, req.user!);
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// Owning Agent/Lead refuses (reason required) → back to InProgress.
+ticketsRouter.post(
+  '/tickets/:id/refuse-close',
+  requireAuth,
+  zodValidate(refuseCloseBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.refuseClose(req.params.id, req.body.reason, req.user!);
     res.json(ok(ticket, req.requestId));
   }),
 );

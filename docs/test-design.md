@@ -160,6 +160,10 @@
 - **H1** PATCH displayName only; **H2** PATCH password (bcrypt verify); **H3** PATCH role=DeptStaff + dept; **H4** PATCH departmentId=null clears; **H5** DELETE soft-deactivates (history intact); **H6** DELETE idempotent; **H7** deactivated user absent from `GET /users`; **H8** re-create deactivated email revives same row.
 - **X1** PATCH unknown id → 404; **X2** short pw → 422; **X3** DeptStaff w/o dept → 422; **X4** unknown dept → 422; **X5/X8** non-admin → 403; **X6** delete unknown → 404; **X7** self-delete → 409; **X9** name digits → 422; **X10** active-email re-create → 409.
 
+### BE-S17 — DeptStaff close request workflow *(2026-06-11)*
+- **H1** DeptStaff `request-close` → `CloseRequested` + proof comment + `CloseRequested` event + notifies assigned agent + leads; **H2** Lead `approve-close` → `Closed` + notifies requester + the requesting staff; **H3** assigned Agent can approve; **H4** `refuse-close` (reason) → back to `InProgress` + `CloseRefused` event + notifies the staff.
+- **X1** request without a note → 422; **X2** DeptStaff of the wrong dept → 403; **X3** request from a non-`InProgress` status → 409; **X4** non-DeptStaff requests → 403; **X5** non-assignee Agent approves → 403; **X6** approve from a non-`CloseRequested` status → 409; **X7** refuse without a reason → 422; **X8** SV approves → 403.
+
 ## 4. Coverage matrix (min-count compliance)
 
 | Story | Happy | Edge | Error | Integration | Meets Bảng 5.1 |
@@ -179,9 +183,10 @@
 | BE-S13 | 5 | 1 | 4 | — | ✅ |
 | BE-S15 | 5 | — | 9 | — | ✅ |
 | BE-S16 | 8 | — | 10 | — | ✅ |
+| BE-S17 | 4 | — | 8 | — | ✅ |
 
 **Totals (v1, BE-S1…S11):** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**.
-**User-management + auth additions (BE-S12/S13/S15/S16, 2026-06):** the four stories above add ~50 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12), run as part of the same `npm test` suite. Full BE suite green at the latest sync.
+**User-management + auth + close-request additions (BE-S12/S13/S15/S16/S17, 2026-06):** ~62 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12 + 12 S17), in the same `npm test` suite. Full BE suite green at the latest sync (**166 passing**).
 
 ## 5. Open testing questions
 

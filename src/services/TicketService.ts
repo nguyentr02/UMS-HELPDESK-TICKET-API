@@ -17,7 +17,7 @@ import {
 } from '../lib/dto.js';
 import { UserService } from './UserService.js';
 
-const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress'];
+const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'CloseRequested'];
 const STATUS_VALID: readonly TicketStatus[] = [...STATUS_OPEN, 'Closed'];
 const SEVERITY_VALID: readonly Severity[] = ['Critical', 'High', 'Medium', 'Low'];
 
@@ -536,6 +536,248 @@ export const TicketService = {
     });
 
     return toTicketDTO(closed);
+  },
+
+  /**
+   * DeptStaff (of the routed dept) submits a close request with a proof comment
+   * (required) + optional images. Status InProgress → CloseRequested; the owning
+   * Agent/Lead must approve or refuse. The proof lives as a normal comment in the
+   * timeline; `closeRequestedById` records who asked so we can notify them on the
+   * decision.
+   */
+  async requestClose(
+    ticketId: string,
+    note: string,
+    files: IncomingFile[] | undefined,
+    attachmentsMeta: PreUploadedAttachment[] | undefined,
+    caller: SessionUser,
+  ) {
+    await UserService.ensureFromSession(caller);
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundError('Không tìm thấy ticket');
+
+    assertCanPerform('requestClose', caller, ticket);
+
+    if (!TRANSITIONS.requestClose.allowedFrom.includes(ticket.status)) {
+      throw new ConflictError(`Không thể yêu cầu đóng khi ticket ở trạng thái ${ticket.status}`);
+    }
+    if (!note.trim()) {
+      throw new ValidationError({ note: 'Cần mô tả công việc đã hoàn thành' });
+    }
+
+    // Upload outside the DB tx (storage errors short-circuit cleanly).
+    const uploaded = await Promise.all(
+      (files ?? []).map(async (f) => ({ file: f, stored: await getStorage().upload(f) })),
+    );
+
+    return prisma
+      .$transaction(async (tx) => {
+        const comment = await tx.ticketComment.create({
+          data: { ticketId, authorId: caller.id, body: note.trim() },
+        });
+        for (const u of uploaded) {
+          await tx.attachment.create({
+            data: {
+              ticketId,
+              commentId: comment.id,
+              uploaderId: caller.id,
+              filename: u.file.originalname,
+              mimeType: u.file.mimetype,
+              kind: kindFromMime(u.file.mimetype),
+              sizeBytes: u.file.size,
+              storageKey: u.stored.storageKey,
+            },
+          });
+        }
+        for (const a of attachmentsMeta ?? []) {
+          await tx.attachment.create({
+            data: {
+              ticketId,
+              commentId: comment.id,
+              uploaderId: caller.id,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              kind: kindFromMime(a.mimeType),
+              sizeBytes: a.sizeBytes,
+              storageKey: a.url,
+            },
+          });
+        }
+
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: ticket.status },
+          data: { status: 'CloseRequested', closeRequestedById: caller.id },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'CloseRequested',
+            fromStatus: ticket.status,
+            toStatus: 'CloseRequested',
+          },
+        });
+
+        // Notify whoever can decide: the assigned agent (if any) + every active
+        // Lead (so a request is never left unseen). Skip the actor.
+        const recipients = new Set<string>();
+        if (ticket.helpdeskAssigneeId) recipients.add(ticket.helpdeskAssigneeId);
+        const leads = await tx.user.findMany({
+          where: { role: 'HelpdeskLead', isActive: true },
+          select: { id: true },
+        });
+        for (const l of leads) recipients.add(l.id);
+        recipients.delete(caller.id);
+        for (const userId of recipients) {
+          await tx.notification.create({
+            data: {
+              userId,
+              type: 'CloseRequested',
+              ticketId,
+              payload: { ticketCode: ticket.code, requestedById: caller.id, commentId: comment.id },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
+  },
+
+  /**
+   * Owning Agent/Lead approves a pending close request → Closed. Notifies the
+   * requester (TicketClosed) and the DeptStaff who asked.
+   */
+  async approveClose(ticketId: string, reason: string | undefined, caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+
+    const closed = await prisma.$transaction(async (tx) => {
+      const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+      if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+      assertCanPerform('approveClose', caller, before);
+
+      if (!TRANSITIONS.approveClose.allowedFrom.includes(before.status)) {
+        throw new ConflictError(`Không thể duyệt đóng khi ticket ở trạng thái ${before.status}`);
+      }
+
+      const now = new Date();
+      const updated = await tx.ticket.updateMany({
+        where: { id: ticketId, status: before.status },
+        data: { status: 'Closed', closedAt: now, closeRequestedById: null },
+      });
+      if (updated.count === 0) {
+        throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+      }
+
+      await tx.ticketEvent.create({
+        data: {
+          ticketId,
+          actorId: caller.id,
+          type: 'Closed',
+          fromStatus: before.status,
+          toStatus: 'Closed',
+          note: reason ?? null,
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: before.requesterId,
+          type: 'TicketClosed',
+          ticketId,
+          payload: { ticketCode: before.code, reason: reason ?? null },
+        },
+      });
+
+      // Notify the DeptStaff who requested the close (if any, and not the actor).
+      if (before.closeRequestedById && before.closeRequestedById !== caller.id) {
+        await tx.notification.create({
+          data: {
+            userId: before.closeRequestedById,
+            type: 'TicketClosed',
+            ticketId,
+            payload: { ticketCode: before.code, reason: reason ?? null },
+          },
+        });
+      }
+
+      return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+    });
+
+    await safePublishClosed({
+      type: 'ticketClosed',
+      ticketId: closed.id,
+      code: closed.code,
+      status: 'Closed',
+      closedAt: closed.closedAt ?? new Date(),
+      requesterId: closed.requesterId,
+    });
+
+    return toTicketDTO(closed);
+  },
+
+  /**
+   * Owning Agent/Lead refuses a pending close request (reason required) →
+   * back to InProgress. Notifies the DeptStaff who asked so they can redo.
+   */
+  async refuseClose(ticketId: string, reason: string, caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+
+    if (!reason.trim()) {
+      throw new ValidationError({ reason: 'Cần lý do từ chối' });
+    }
+
+    return prisma
+      .$transaction(async (tx) => {
+        const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+        if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+        assertCanPerform('refuseClose', caller, before);
+
+        if (!TRANSITIONS.refuseClose.allowedFrom.includes(before.status)) {
+          throw new ConflictError(`Không thể từ chối đóng khi ticket ở trạng thái ${before.status}`);
+        }
+
+        const requestedById = before.closeRequestedById;
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: before.status },
+          data: { status: 'InProgress', closeRequestedById: null },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'CloseRefused',
+            fromStatus: before.status,
+            toStatus: 'InProgress',
+            note: reason.trim(),
+          },
+        });
+
+        if (requestedById && requestedById !== caller.id) {
+          await tx.notification.create({
+            data: {
+              userId: requestedById,
+              type: 'CloseRefused',
+              ticketId,
+              payload: { ticketCode: before.code, reason: reason.trim() },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
   },
 
   async addComment(

@@ -53,6 +53,9 @@ const INTERNAL_TO_EXTERNAL: Record<TicketStatus, ExternalStatus> = {
   Pending: 'Requested',
   Assigned: 'Requested',
   InProgress: 'Processing',
+  // A pending close request is still "in progress" from the requester's view —
+  // they don't see the internal close-approval handshake.
+  CloseRequested: 'Processing',
   Closed: 'Finished',
 };
 

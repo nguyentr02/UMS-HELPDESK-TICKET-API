@@ -713,6 +713,136 @@ export const paths: OpenAPIV3.PathsObject = {
     },
   },
 
+  '/tickets/{id}/request-close': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'DeptStaff requests to close (with proof).',
+      description:
+        'Transition `InProgress` → `CloseRequested`. Permission: **DeptStaff of the routed department** only. Multipart: a `note` (required — proof of work done) + optional image attachments. The note is stored as a normal comment; inserts `TicketEvent[CloseRequested]` and notifies the assigned Agent + every active Lead. Requester still sees external status `Processing`.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['note'],
+              properties: {
+                note: { type: 'string', minLength: 1, maxLength: 5000, description: 'Proof of completed work.' },
+                attachments: { type: 'array', items: { type: 'string', format: 'binary' }, description: 'Optional images (≤5, ≤10 MB each).' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Close requested.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
+              example: envelope({ ...EX_TICKET, status: 'CloseRequested' }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
+  '/tickets/{id}/approve-close': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'Approve a pending close request (terminal).',
+      description:
+        'Transition `CloseRequested` → `Closed`. Permission: **HelpdeskLead** OR the **assigned HelpdeskAgent**. Optional closing `reason`. Inserts `TicketEvent[Closed]` and notifies the requester + the DeptStaff who asked.',
+      security: SECURITY,
+      requestBody: {
+        required: false,
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/CloseTicketRequest' },
+            example: { reason: 'Đã xác nhận hoàn thành' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Close request approved → ticket closed.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
+              example: envelope({ ...EX_TICKET, status: 'Closed', closedAt: '2026-06-01T05:00:00.000Z' }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
+  '/tickets/{id}/refuse-close': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'Refuse a pending close request.',
+      description:
+        'Transition `CloseRequested` → `InProgress`. Permission: **HelpdeskLead** OR the **assigned HelpdeskAgent**. A `reason` is **required**. Inserts `TicketEvent[CloseRefused]` (reason in `note`) and notifies the DeptStaff who asked so they can redo + re-submit.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['reason'],
+              properties: { reason: { type: 'string', minLength: 1, maxLength: 2000 } },
+            },
+            example: { reason: 'Chưa đính kèm ảnh nghiệm thu' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Close request refused → back to In Progress.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
+              example: envelope({ ...EX_TICKET, status: 'InProgress' }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
   '/tickets/{id}/severity': {
     parameters: [
       { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },

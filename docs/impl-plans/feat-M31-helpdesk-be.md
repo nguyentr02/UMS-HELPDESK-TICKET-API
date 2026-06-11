@@ -307,6 +307,25 @@ Read-only Admin view of every persisted `User`. Lets the Admin see who's in the 
 **Phase 16.C — OpenAPI**
 - [x] `UpdateUserRequest` schema; `PATCH` (200/401/403/404/422) + `DELETE` (200/401/403/404/409) ops; `POST` description documents the revive path.
 
+### Phase 17 — DeptStaff close request workflow  *(BE-S17 — new, 2026-06-11)*
+
+DeptStaff can no longer be left out of closing: instead of just commenting, the staffer who did the work submits a **close request** with proof; the owning Agent/Lead approves or refuses. Direct close by Agent/Lead is unchanged (additive).
+
+**Decisions (locked):** new 6th status `CloseRequested`; proof = comment (required) + optional images; refuse needs a reason and returns to `InProgress`; every step notifies the relevant party.
+
+**Phase 17.A — schema + migration**
+- [x] `TicketStatus` += `CloseRequested`; `EventType` += `CloseRequested`, `CloseRefused`; `NotificationType` += `CloseRequested`, `CloseRefused`; `Ticket.closeRequestedById String?` (plain id — who asked). Migration `add_close_request`.
+- [x] `CloseRequested` maps to external `Processing` (`lib/dto.ts`); added to `STATUS_OPEN` so it stays in open queues + analytics `byStatus`.
+
+**Phase 17.B — transitions + service + routes**
+- [x] `lib/transitions.ts` — `requestClose` (`InProgress`→`CloseRequested`, DeptStaff of routed dept), `approveClose` (`CloseRequested`→`Closed`, Lead/assigned-Agent), `refuseClose` (`CloseRequested`→`InProgress`, Lead/assigned-Agent). `assertCanPerform` extends the dept-scope + assignee guards.
+- [x] `TicketService.requestClose` (proof comment + images + event + notify agent/leads), `approveClose` (close + notify requester + the requesting staff + publish), `refuseClose` (reason event + notify staff).
+- [x] `routes/tickets.ts` — `POST /tickets/:id/{request-close (multipart), approve-close, refuse-close}`.
+
+**Phase 17.C — OpenAPI + tests**
+- [x] Three paths documented (multipart proof on request-close; 200/401/403/404/409/422).
+- [x] `tests/integration/tickets-close-request.test.ts` — `M31-BE-S17-H1..H4` (request / approve / agent-approve / refuse + notifications) + `X1..X8` (no note 422, wrong dept 403, wrong status 409, non-DeptStaff 403, non-assignee 403, wrong-status approve 409, no reason 422, SV 403).
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -338,6 +357,7 @@ Read-only Admin view of every persisted `User`. Lets the Admin see who's in the 
 | 13 | BE-S13 | `M31-BE-S13-*` |
 | 15 | BE-S15 | `M31-BE-S15-*` (Admin create — scope exception, 2026-06-09) |
 | 16 | BE-S16 | `M31-BE-S16-*` (update + soft-delete + revive — scope exception, 2026-06-10) |
+| 17 | BE-S17 | `M31-BE-S17-*` (DeptStaff close-request workflow, 2026-06-11) |
 | 3 | BE-S3 | `M31-BE-S3-*` |
 | 4 | BE-S4 | `M31-BE-S4-*` |
 | 5 | BE-S5 | `M31-BE-S5-*` |

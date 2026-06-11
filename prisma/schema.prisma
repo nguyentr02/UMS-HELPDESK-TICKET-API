@@ -24,6 +24,7 @@ enum TicketStatus {
   Pending
   Assigned
   InProgress
+  CloseRequested
   Closed
 }
 
@@ -45,6 +46,8 @@ enum NotificationType {
   StatusChanged
   TicketCreated
   TicketCommented
+  CloseRequested
+  CloseRefused
 }
 
 enum EventType {
@@ -54,6 +57,8 @@ enum EventType {
   Started
   SeverityChanged
   Commented
+  CloseRequested
+  CloseRefused
   Closed
 }
 
@@ -139,6 +144,11 @@ model Ticket {
 
   helpdeskAssigneeId String?
   helpdeskAssignee   User?   @relation("TicketAssignee", fields: [helpdeskAssigneeId], references: [id], onDelete: SetNull)
+
+  // Set to the DeptStaff who submitted a pending close request (status =
+  // CloseRequested); cleared on approve/refuse. Plain id (no relation) — we
+  // only read it to notify that staffer when the request is decided.
+  closeRequestedById String?
 
   routedDepartmentId String?
   routedDepartment   Department? @relation("TicketRoutedDept", fields: [routedDepartmentId], references: [id], onDelete: SetNull)

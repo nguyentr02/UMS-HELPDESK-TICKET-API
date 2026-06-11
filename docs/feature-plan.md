@@ -290,7 +290,9 @@ erDiagram
 - **`status` query** on `GET /tickets`: accepts CSV or repeated values from `{Pending,Assigned,InProgress,Redirected,Closed}`, **or** the convenience value `open` meaning every non-`Closed` state.
 - **Mutations** use Zod-validated request bodies; FormData on `POST /tickets` and `POST /:id/comments` (multer).
 
-The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
+The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,request-close,approve-close,refuse-close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
+
+**Close-request workflow (BE-S17, 2026-06-11):** `POST /tickets/:id/request-close` (DeptStaff of routed dept — multipart proof comment + optional images → `CloseRequested`), `POST /tickets/:id/approve-close` (Lead/assigned-Agent → `Closed`), `POST /tickets/:id/refuse-close` (Lead/assigned-Agent, reason required → `InProgress`). Adds internal status `CloseRequested` (external `Processing`); event types `CloseRequested`/`CloseRefused`; notification types `CloseRequested`/`CloseRefused`.
 
 **User-management endpoints (Admin-only — scope exceptions, 2026-06):**
 
@@ -388,6 +390,7 @@ Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT ag
 | BE-S13 | Admin user directory (read-only) | Admin-only `GET /users[/:id]`; filters + pagination; DTO projection (no PII). |
 | BE-S15 | Admin user creation *(scope exception)* | institutional email; name rule; DeptStaff dept; optional password; revive deactivated email. |
 | BE-S16 | Admin user update + soft delete *(scope exception)* | PATCH (email immutable); soft delete `isActive=false`; no self-delete; deactivated hidden from list. |
+| BE-S17 | DeptStaff close request workflow | `CloseRequested` status; request (proof comment+images) / approve / refuse (reason); dept-scope + assignee guards; notifications each step. |
 
 ---
 

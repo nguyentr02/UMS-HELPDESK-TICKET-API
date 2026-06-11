@@ -9,7 +9,7 @@ export class AnalyticsFailedError extends AppError {
 }
 
 type Severity = 'Critical' | 'High' | 'Medium' | 'Low';
-type TicketStatus = 'Pending' | 'Assigned' | 'InProgress' | 'Closed';
+type TicketStatus = 'Pending' | 'Assigned' | 'InProgress' | 'CloseRequested' | 'Closed';
 
 export interface DepartmentBucket {
   departmentId: string;
@@ -41,6 +41,7 @@ const ZERO_STATUS: Record<TicketStatus, number> = {
   Pending: 0,
   Assigned: 0,
   InProgress: 0,
+  CloseRequested: 0,
   Closed: 0,
 };
 

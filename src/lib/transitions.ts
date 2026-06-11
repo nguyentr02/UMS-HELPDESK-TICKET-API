@@ -6,6 +6,9 @@ export type TransitionKey =
   | 'assign'
   | 'forward'
   | 'progress'
+  | 'requestClose'
+  | 'approveClose'
+  | 'refuseClose'
   | 'close'
   | 'overrideSeverity';
 
@@ -46,6 +49,26 @@ export const TRANSITIONS: Record<TransitionKey, TransitionRule> = {
     to: 'InProgress',
     baseRoles: ['HelpdeskLead', 'HelpdeskAgent', 'DeptStaff'],
   },
+  // DeptStaff (of the routed dept) asks to close an in-progress ticket, with a
+  // proof comment + optional images. Status → CloseRequested awaiting review.
+  requestClose: {
+    allowedFrom: ['InProgress'],
+    to: 'CloseRequested',
+    baseRoles: ['DeptStaff'],
+  },
+  // The owning Agent/Lead approves a pending close request → Closed.
+  approveClose: {
+    allowedFrom: ['CloseRequested'],
+    to: 'Closed',
+    // HelpdeskAgent only when they're the assignee — checked below.
+    baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
+  },
+  // The owning Agent/Lead refuses (reason required) → back to InProgress.
+  refuseClose: {
+    allowedFrom: ['CloseRequested'],
+    to: 'InProgress',
+    baseRoles: ['HelpdeskLead', 'HelpdeskAgent'],
+  },
   close: {
     allowedFrom: ['Pending', 'Assigned', 'InProgress'],
     to: 'Closed',
@@ -78,14 +101,20 @@ export function assertCanPerform(
     throw new ForbiddenError(`Vai trò ${caller.role} không thể thực hiện ${action}`);
   }
   // Per-ticket layered checks.
-  if (action === 'progress' && caller.role === 'DeptStaff') {
+  if (
+    (action === 'progress' || action === 'requestClose') &&
+    caller.role === 'DeptStaff'
+  ) {
     if (!caller.departmentId || caller.departmentId !== ticket.routedDepartmentId) {
-      throw new ForbiddenError('Chỉ DeptStaff của phòng được phân công mới có thể bắt đầu xử lý');
+      throw new ForbiddenError('Chỉ DeptStaff của phòng được phân công mới có thể thực hiện thao tác này');
     }
   }
-  if (action === 'close' && caller.role === 'HelpdeskAgent') {
+  if (
+    (action === 'close' || action === 'approveClose' || action === 'refuseClose') &&
+    caller.role === 'HelpdeskAgent'
+  ) {
     if (ticket.helpdeskAssigneeId !== caller.id) {
-      throw new ForbiddenError('Agent chỉ có thể đóng ticket được phân cho mình');
+      throw new ForbiddenError('Agent chỉ có thể xử lý ticket được phân cho mình');
     }
   }
 }
