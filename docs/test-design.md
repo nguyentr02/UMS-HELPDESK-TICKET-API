@@ -164,6 +164,14 @@
 - **H1** DeptStaff `request-close` → `CloseRequested` + proof comment + `CloseRequested` event + notifies assigned agent + leads; **H2** Lead `approve-close` → `Closed` + notifies requester + the requesting staff; **H3** assigned Agent can approve; **H4** `refuse-close` (reason) → back to `InProgress` + `CloseRefused` event + notifies the staff.
 - **X1** request without a note → 422; **X2** DeptStaff of the wrong dept → 403; **X3** request from a non-`InProgress` status → 409; **X4** non-DeptStaff requests → 403; **X5** non-assignee Agent approves → 403; **X6** approve from a non-`CloseRequested` status → 409; **X7** refuse without a reason → 422; **X8** SV approves → 403.
 
+### BE-S18 — Agent/Lead direct redirect *(2026-06-11)*
+- **H1** Lead redirects Assigned→new dept (Assigned, assignee kept, `Redirected` event); **H2** redirecting InProgress resets to Assigned; **H3** assigned Agent can redirect.
+- **X1** no reason → 422; **X2** same dept → 422; **X3** unknown dept → 422; **X4** from Pending → 409; **X5** non-assignee Agent → 403; **X6** DeptStaff → 403; **X7** SV → 403.
+
+### BE-S19 — DeptStaff redirect request workflow *(2026-06-11)*
+- **H1** request-redirect → `RedirectRequested` + event + records requester + notifies agent/leads; **H2** approve-redirect picks target dept → Assigned (new dept), assignee kept, notifies new dept + requester staff; **H3** refuse → restores InProgress; **H4** refuse restores Assigned when the request came from Assigned.
+- **X1** no reason → 422; **X2** wrong dept → 403; **X3** from Pending → 409; **X4** approve to same dept → 422; **X5** non-assignee approve → 403; **X6** approve from wrong status → 409; **X7** refuse no reason → 422; **X8** SV → 403.
+
 ## 4. Coverage matrix (min-count compliance)
 
 | Story | Happy | Edge | Error | Integration | Meets Bảng 5.1 |
@@ -184,9 +192,11 @@
 | BE-S15 | 5 | — | 9 | — | ✅ |
 | BE-S16 | 8 | — | 10 | — | ✅ |
 | BE-S17 | 4 | — | 8 | — | ✅ |
+| BE-S18 | 3 | — | 7 | — | ✅ |
+| BE-S19 | 4 | — | 8 | — | ✅ |
 
 **Totals (v1, BE-S1…S11):** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**.
-**User-management + auth + close-request additions (BE-S12/S13/S15/S16/S17, 2026-06):** ~62 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12 + 12 S17), in the same `npm test` suite. Full BE suite green at the latest sync (**166 passing**).
+**User-management + auth + close/redirect additions (BE-S12…S19, 2026-06):** ~84 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12 + 12 S17 + 10 S18 + 12 S19), in the same `npm test` suite. Full BE suite green at the latest sync (**188 passing**).
 
 ## 5. Open testing questions
 

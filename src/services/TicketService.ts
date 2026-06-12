@@ -17,7 +17,7 @@ import {
 } from '../lib/dto.js';
 import { UserService } from './UserService.js';
 
-const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'CloseRequested'];
+const STATUS_OPEN: readonly TicketStatus[] = ['Pending', 'Assigned', 'InProgress', 'CloseRequested', 'RedirectRequested'];
 const STATUS_VALID: readonly TicketStatus[] = [...STATUS_OPEN, 'Closed'];
 const SEVERITY_VALID: readonly Severity[] = ['Critical', 'High', 'Medium', 'Low'];
 
@@ -405,6 +405,91 @@ export const TicketService = {
     }).then(toTicketDTO);
   },
 
+  /**
+   * Re-route an already-routed ticket (Assigned/InProgress) to a different
+   * department. Resets to `Assigned` so the new dept starts fresh; the
+   * Helpdesk assignee is kept. Reason required; target must differ from the
+   * current dept. Notifies the new dept's staff + requester.
+   */
+  async redirect(
+    ticketId: string,
+    departmentId: string,
+    reason: string,
+    caller: SessionUser,
+  ) {
+    await UserService.ensureFromSession(caller);
+
+    if (!reason.trim()) throw new ValidationError({ reason: 'Cần lý do chuyển phòng ban' });
+
+    const dept = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!dept) throw new ValidationError({ departmentId: 'Phòng ban không tồn tại' });
+
+    return prisma
+      .$transaction(async (tx) => {
+        const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+        if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+        assertCanPerform('redirect', caller, before);
+
+        if (!TRANSITIONS.redirect.allowedFrom.includes(before.status)) {
+          throw new ConflictError(`Không thể chuyển phòng ban khi ticket ở trạng thái ${before.status}`);
+        }
+        if (before.routedDepartmentId === departmentId) {
+          throw new ValidationError({ departmentId: 'Ticket đã thuộc phòng ban này' });
+        }
+
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: before.status },
+          data: { status: 'Assigned', routedDepartmentId: departmentId },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'Redirected',
+            fromStatus: before.status,
+            toStatus: 'Assigned',
+            fromDepartmentId: before.routedDepartmentId,
+            toDepartmentId: departmentId,
+            note: reason.trim(),
+          },
+        });
+
+        const staff = await tx.user.findMany({
+          where: { role: 'DeptStaff', departmentId, isActive: true },
+          select: { id: true },
+        });
+        for (const sft of staff) {
+          await tx.notification.create({
+            data: {
+              userId: sft.id,
+              type: 'TicketForwarded',
+              ticketId,
+              payload: { ticketCode: before.code, departmentId },
+            },
+          });
+        }
+
+        if (before.requesterId !== caller.id) {
+          await tx.notification.create({
+            data: {
+              userId: before.requesterId,
+              type: 'StatusChanged',
+              ticketId,
+              payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
+  },
+
   async startProgress(ticketId: string, caller: SessionUser) {
     await UserService.ensureFromSession(caller);
 
@@ -769,6 +854,232 @@ export const TicketService = {
             data: {
               userId: requestedById,
               type: 'CloseRefused',
+              ticketId,
+              payload: { ticketCode: before.code, reason: reason.trim() },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
+  },
+
+  /**
+   * DeptStaff (of the routed dept) asks to move the ticket to another dept,
+   * with a reason. No target — the reviewing Agent/Lead picks the destination.
+   * Status {Assigned|InProgress} → RedirectRequested; remembers who asked.
+   */
+  async requestRedirect(ticketId: string, reason: string, caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+
+    if (!reason.trim()) throw new ValidationError({ reason: 'Cần lý do xin chuyển phòng ban' });
+
+    return prisma
+      .$transaction(async (tx) => {
+        const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+        if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+        assertCanPerform('requestRedirect', caller, before);
+
+        if (!TRANSITIONS.requestRedirect.allowedFrom.includes(before.status)) {
+          throw new ConflictError(`Không thể xin chuyển phòng ban khi ticket ở trạng thái ${before.status}`);
+        }
+
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: before.status },
+          data: { status: 'RedirectRequested', redirectRequestedById: caller.id },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'RedirectRequested',
+            fromStatus: before.status,
+            toStatus: 'RedirectRequested',
+            note: reason.trim(),
+          },
+        });
+
+        // Notify whoever can decide: the assigned agent (if any) + every Lead.
+        const recipients = new Set<string>();
+        if (before.helpdeskAssigneeId) recipients.add(before.helpdeskAssigneeId);
+        const leads = await tx.user.findMany({
+          where: { role: 'HelpdeskLead', isActive: true },
+          select: { id: true },
+        });
+        for (const l of leads) recipients.add(l.id);
+        recipients.delete(caller.id);
+        for (const userId of recipients) {
+          await tx.notification.create({
+            data: {
+              userId,
+              type: 'RedirectRequested',
+              ticketId,
+              payload: { ticketCode: before.code, requestedById: caller.id, reason: reason.trim() },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
+  },
+
+  /**
+   * Owning Agent/Lead approves a redirect request — picks the target dept
+   * (≠ current). RedirectRequested → Assigned (new dept); assignee kept.
+   * Notifies the new dept's staff + the requesting staff + the requester.
+   */
+  async approveRedirect(
+    ticketId: string,
+    departmentId: string,
+    note: string | undefined,
+    caller: SessionUser,
+  ) {
+    await UserService.ensureFromSession(caller);
+
+    const dept = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!dept) throw new ValidationError({ departmentId: 'Phòng ban không tồn tại' });
+
+    return prisma
+      .$transaction(async (tx) => {
+        const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+        if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+        assertCanPerform('approveRedirect', caller, before);
+
+        if (!TRANSITIONS.approveRedirect.allowedFrom.includes(before.status)) {
+          throw new ConflictError(`Không thể duyệt chuyển phòng ban khi ticket ở trạng thái ${before.status}`);
+        }
+        if (before.routedDepartmentId === departmentId) {
+          throw new ValidationError({ departmentId: 'Ticket đã thuộc phòng ban này' });
+        }
+
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: before.status },
+          data: { status: 'Assigned', routedDepartmentId: departmentId, redirectRequestedById: null },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'Redirected',
+            fromStatus: before.status,
+            toStatus: 'Assigned',
+            fromDepartmentId: before.routedDepartmentId,
+            toDepartmentId: departmentId,
+            note: note?.trim() || null,
+          },
+        });
+
+        const staff = await tx.user.findMany({
+          where: { role: 'DeptStaff', departmentId, isActive: true },
+          select: { id: true },
+        });
+        for (const sft of staff) {
+          await tx.notification.create({
+            data: {
+              userId: sft.id,
+              type: 'TicketForwarded',
+              ticketId,
+              payload: { ticketCode: before.code, departmentId },
+            },
+          });
+        }
+
+        // Tell the staffer who asked that their request was approved + moved.
+        if (before.redirectRequestedById && before.redirectRequestedById !== caller.id) {
+          await tx.notification.create({
+            data: {
+              userId: before.redirectRequestedById,
+              type: 'StatusChanged',
+              ticketId,
+              payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
+            },
+          });
+        }
+        if (before.requesterId !== caller.id) {
+          await tx.notification.create({
+            data: {
+              userId: before.requesterId,
+              type: 'StatusChanged',
+              ticketId,
+              payload: { ticketCode: before.code, status: 'Assigned', toDepartmentId: departmentId },
+            },
+          });
+        }
+
+        return tx.ticket.findUniqueOrThrow({ where: { id: ticketId }, include: TICKET_INCLUDE });
+      })
+      .then(toTicketDTO);
+  },
+
+  /**
+   * Owning Agent/Lead refuses a redirect request (reason required) → back to
+   * the prior status (Assigned/InProgress, read from the request event).
+   * Notifies the DeptStaff who asked.
+   */
+  async refuseRedirect(ticketId: string, reason: string, caller: SessionUser) {
+    await UserService.ensureFromSession(caller);
+
+    if (!reason.trim()) throw new ValidationError({ reason: 'Cần lý do từ chối' });
+
+    return prisma
+      .$transaction(async (tx) => {
+        const before = await tx.ticket.findUnique({ where: { id: ticketId } });
+        if (!before) throw new NotFoundError('Không tìm thấy ticket');
+
+        assertCanPerform('refuseRedirect', caller, before);
+
+        if (!TRANSITIONS.refuseRedirect.allowedFrom.includes(before.status)) {
+          throw new ConflictError(`Không thể từ chối chuyển phòng ban khi ticket ở trạng thái ${before.status}`);
+        }
+
+        // Restore the status the ticket had when the request was made.
+        const reqEvent = await tx.ticketEvent.findFirst({
+          where: { ticketId, type: 'RedirectRequested' },
+          orderBy: { createdAt: 'desc' },
+          select: { fromStatus: true },
+        });
+        const priorStatus =
+          reqEvent?.fromStatus === 'Assigned' || reqEvent?.fromStatus === 'InProgress'
+            ? reqEvent.fromStatus
+            : 'InProgress';
+        const requestedById = before.redirectRequestedById;
+
+        const updated = await tx.ticket.updateMany({
+          where: { id: ticketId, status: before.status },
+          data: { status: priorStatus, redirectRequestedById: null },
+        });
+        if (updated.count === 0) {
+          throw new ConflictError('Trạng thái ticket đã thay đổi trong lúc xử lý');
+        }
+
+        await tx.ticketEvent.create({
+          data: {
+            ticketId,
+            actorId: caller.id,
+            type: 'RedirectRefused',
+            fromStatus: 'RedirectRequested',
+            toStatus: priorStatus,
+            note: reason.trim(),
+          },
+        });
+
+        if (requestedById && requestedById !== caller.id) {
+          await tx.notification.create({
+            data: {
+              userId: requestedById,
+              type: 'RedirectRefused',
               ticketId,
               payload: { ticketCode: before.code, reason: reason.trim() },
             },

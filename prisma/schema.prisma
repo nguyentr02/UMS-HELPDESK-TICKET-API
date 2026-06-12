@@ -25,6 +25,7 @@ enum TicketStatus {
   Assigned
   InProgress
   CloseRequested
+  RedirectRequested
   Closed
 }
 
@@ -48,17 +49,22 @@ enum NotificationType {
   TicketCommented
   CloseRequested
   CloseRefused
+  RedirectRequested
+  RedirectRefused
 }
 
 enum EventType {
   Created
   AgentAssigned
   Forwarded
+  Redirected
   Started
   SeverityChanged
   Commented
   CloseRequested
   CloseRefused
+  RedirectRequested
+  RedirectRefused
   Closed
 }
 
@@ -149,6 +155,10 @@ model Ticket {
   // CloseRequested); cleared on approve/refuse. Plain id (no relation) — we
   // only read it to notify that staffer when the request is decided.
   closeRequestedById String?
+
+  // Same idea for a pending redirect request (status = RedirectRequested):
+  // who asked, so we can notify them when an Agent/Lead approves/refuses.
+  redirectRequestedById String?
 
   routedDepartmentId String?
   routedDepartment   Department? @relation("TicketRoutedDept", fields: [routedDepartmentId], references: [id], onDelete: SetNull)

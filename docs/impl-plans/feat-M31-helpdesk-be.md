@@ -326,6 +326,26 @@ DeptStaff can no longer be left out of closing: instead of just commenting, the 
 - [x] Three paths documented (multipart proof on request-close; 200/401/403/404/409/422).
 - [x] `tests/integration/tickets-close-request.test.ts` — `M31-BE-S17-H1..H4` (request / approve / agent-approve / refuse + notifications) + `X1..X8` (no note 422, wrong dept 403, wrong status 409, non-DeptStaff 403, non-assignee 403, wrong-status approve 409, no reason 422, SV 403).
 
+### Phase 18 — Agent/Lead direct redirect  *(BE-S18 — new, 2026-06-11)*
+
+Re-route an already-routed ticket to a different department (the first routing stays `forward`).
+
+- [x] Migration `add_redirect_event` — `EventType += Redirected`.
+- [x] `lib/transitions.ts` — `redirect` (`Assigned`/`InProgress` → `Assigned`, Lead any / Agent assignee).
+- [x] `TicketService.redirect(id, departmentId, reason)` — reason required; target ≠ current + real dept; resets to `Assigned`, **keeps the assignee**, logs `Redirected` (from→to dept + reason), notifies new dept staff + requester.
+- [x] `routes/tickets.ts` — `POST /tickets/:id/redirect` `{ departmentId, reason }`; OpenAPI documented.
+- [x] `tests/integration/tickets-redirect.test.ts` — `M31-BE-S18-H1..H3` (Assigned/InProgress/agent) + `X1..X7` (no reason / same dept / unknown dept 422; from Pending 409; non-assignee / DeptStaff / SV 403).
+
+### Phase 19 — DeptStaff redirect request workflow  *(BE-S19 — new, 2026-06-11)*
+
+The handling dept asks Helpdesk to move the ticket; the reviewer picks the destination.
+
+- [x] Migration `add_redirect_request` — `TicketStatus += RedirectRequested`; `EventType/NotificationType += RedirectRequested + RedirectRefused`; `Ticket.redirectRequestedById`.
+- [x] `lib/transitions.ts` — `requestRedirect` (`Assigned`/`InProgress` → `RedirectRequested`, DeptStaff of dept), `approveRedirect` (`RedirectRequested` → `Assigned` new dept, Lead/assigned-Agent), `refuseRedirect` (`RedirectRequested` → prior status, Lead/assigned-Agent).
+- [x] `TicketService.requestRedirect` (reason only, notifies agent + leads) / `approveRedirect` (reviewer **picks the target dept** ≠ current, keeps assignee, notifies new dept + requesting staff + requester) / `refuseRedirect` (reason → restores the pre-request status from the request event, notifies staff).
+- [x] `routes/tickets.ts` — `POST /tickets/:id/{request-redirect, approve-redirect, refuse-redirect}`; OpenAPI documented. `dto`: `RedirectRequested → Processing`; added to `STATUS_OPEN` + analytics `byStatus`.
+- [x] `tests/integration/tickets-redirect-request.test.ts` — `M31-BE-S19-H1..H4` (request / approve-with-dept / refuse-restores-InProgress / refuse-restores-Assigned) + `X1..X8` (no reason 422, wrong dept 403, wrong status 409, same-dept-approve 422, non-assignee 403, wrong-status-approve 409, no-reason-refuse 422, SV 403).
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -358,6 +378,8 @@ DeptStaff can no longer be left out of closing: instead of just commenting, the 
 | 15 | BE-S15 | `M31-BE-S15-*` (Admin create — scope exception, 2026-06-09) |
 | 16 | BE-S16 | `M31-BE-S16-*` (update + soft-delete + revive — scope exception, 2026-06-10) |
 | 17 | BE-S17 | `M31-BE-S17-*` (DeptStaff close-request workflow, 2026-06-11) |
+| 18 | BE-S18 | `M31-BE-S18-*` (Agent/Lead direct redirect, 2026-06-11) |
+| 19 | BE-S19 | `M31-BE-S19-*` (DeptStaff redirect-request workflow, 2026-06-11) |
 | 3 | BE-S3 | `M31-BE-S3-*` |
 | 4 | BE-S4 | `M31-BE-S4-*` |
 | 5 | BE-S5 | `M31-BE-S5-*` |

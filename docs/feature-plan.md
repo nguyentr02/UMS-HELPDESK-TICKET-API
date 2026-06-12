@@ -294,6 +294,8 @@ The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:
 
 **Close-request workflow (BE-S17, 2026-06-11):** `POST /tickets/:id/request-close` (DeptStaff of routed dept — multipart proof comment + optional images → `CloseRequested`), `POST /tickets/:id/approve-close` (Lead/assigned-Agent → `Closed`), `POST /tickets/:id/refuse-close` (Lead/assigned-Agent, reason required → `InProgress`). Adds internal status `CloseRequested` (external `Processing`); event types `CloseRequested`/`CloseRefused`; notification types `CloseRequested`/`CloseRefused`.
 
+**Redirect (BE-S18/S19, 2026-06-11):** **Direct (S18)** — `POST /tickets/:id/redirect` (Lead/assigned-Agent; `Assigned`/`InProgress` → `Assigned` against a different dept; reason required; keeps assignee; `EventType[Redirected]`). **Request (S19)** — `POST /tickets/:id/request-redirect` (DeptStaff of routed dept, reason only → `RedirectRequested`), `POST /tickets/:id/approve-redirect` (Lead/assigned-Agent picks the target dept → `Assigned`), `POST /tickets/:id/refuse-redirect` (reason → prior status). Adds internal status `RedirectRequested` (external `Processing`); event/notification types `RedirectRequested`/`RedirectRefused`; `Ticket.redirectRequestedById`.
+
 **User-management endpoints (Admin-only — scope exceptions, 2026-06):**
 
 | Method + path | Returns | Notes |
@@ -391,6 +393,8 @@ Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT ag
 | BE-S15 | Admin user creation *(scope exception)* | institutional email; name rule; DeptStaff dept; optional password; revive deactivated email. |
 | BE-S16 | Admin user update + soft delete *(scope exception)* | PATCH (email immutable); soft delete `isActive=false`; no self-delete; deactivated hidden from list. |
 | BE-S17 | DeptStaff close request workflow | `CloseRequested` status; request (proof comment+images) / approve / refuse (reason); dept-scope + assignee guards; notifications each step. |
+| BE-S18 | Agent/Lead direct redirect | re-route Assigned/InProgress → new dept (reason); resets to Assigned, keeps assignee; `Redirected` event. |
+| BE-S19 | DeptStaff redirect request workflow | `RedirectRequested` status; request (reason, no target) / approve (reviewer picks dept) / refuse (reason → prior status); notifications each step. |
 
 ---
 

@@ -13,6 +13,11 @@ const SEVERITY = ['Critical', 'High', 'Medium', 'Low'] as const;
 
 const assignBody = z.object({ agentId: z.string().min(1) });
 const forwardBody = z.object({ departmentId: z.string().min(1) });
+// Re-route to a different dept — reason required (audit + the dept needs context).
+const redirectBody = z.object({
+  departmentId: z.string().min(1),
+  reason: z.string().trim().min(1, 'Cần lý do chuyển phòng ban').max(2000),
+});
 // FE sends `note`; legacy `reason` accepted too for the §8.3 spec example.
 const closeBody = z
   .object({
@@ -47,6 +52,19 @@ const approveCloseBody = z.object({
   reason: z.string().trim().min(1).max(2000).optional(),
 });
 const refuseCloseBody = z.object({
+  reason: z.string().trim().min(1, 'Cần lý do từ chối').max(2000),
+});
+
+// Redirect request flow. Request carries only a reason (no target dept); the
+// reviewing Agent/Lead picks the destination on approve.
+const requestRedirectBody = z.object({
+  reason: z.string().trim().min(1, 'Cần lý do xin chuyển phòng ban').max(2000),
+});
+const approveRedirectBody = z.object({
+  departmentId: z.string().min(1),
+  note: z.string().trim().min(1).max(2000).optional(),
+});
+const refuseRedirectBody = z.object({
   reason: z.string().trim().min(1, 'Cần lý do từ chối').max(2000),
 });
 
@@ -160,6 +178,21 @@ ticketsRouter.post(
 );
 
 ticketsRouter.post(
+  '/tickets/:id/redirect',
+  requireAuth,
+  zodValidate(redirectBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.redirect(
+      req.params.id,
+      req.body.departmentId,
+      req.body.reason,
+      req.user!,
+    );
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+ticketsRouter.post(
   '/tickets/:id/progress',
   requireAuth,
   asyncHandler(async (req, res) => {
@@ -221,6 +254,44 @@ ticketsRouter.post(
   zodValidate(refuseCloseBody),
   asyncHandler(async (req, res) => {
     const ticket = await TicketService.refuseClose(req.params.id, req.body.reason, req.user!);
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// DeptStaff asks to move the ticket to another dept (reason only).
+ticketsRouter.post(
+  '/tickets/:id/request-redirect',
+  requireAuth,
+  zodValidate(requestRedirectBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.requestRedirect(req.params.id, req.body.reason, req.user!);
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// Owning Agent/Lead approves a redirect request — picks the target dept.
+ticketsRouter.post(
+  '/tickets/:id/approve-redirect',
+  requireAuth,
+  zodValidate(approveRedirectBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.approveRedirect(
+      req.params.id,
+      req.body.departmentId,
+      req.body.note,
+      req.user!,
+    );
+    res.json(ok(ticket, req.requestId));
+  }),
+);
+
+// Owning Agent/Lead refuses a redirect request (reason required).
+ticketsRouter.post(
+  '/tickets/:id/refuse-redirect',
+  requireAuth,
+  zodValidate(refuseRedirectBody),
+  asyncHandler(async (req, res) => {
+    const ticket = await TicketService.refuseRedirect(req.params.id, req.body.reason, req.user!);
     res.json(ok(ticket, req.requestId));
   }),
 );

@@ -639,6 +639,158 @@ export const paths: OpenAPIV3.PathsObject = {
     },
   },
 
+  '/tickets/{id}/redirect': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'Redirect to a different department (re-route).',
+      description:
+        'Transition `Assigned`/`InProgress` → `Assigned` against a **different** `routedDepartmentId`; the new dept starts fresh while the Helpdesk assignee is kept. Permission: **HelpdeskLead** or the **assigned HelpdeskAgent**. `reason` is **required**. Inserts `TicketEvent[Redirected]` (from→to dept + reason) and notifies the new dept staff + the requester. 422 if the target equals the current dept.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['departmentId', 'reason'],
+              properties: {
+                departmentId: { type: 'string', description: 'Target department (≠ current).' },
+                reason: { type: 'string', minLength: 1, maxLength: 2000 },
+              },
+            },
+            example: { departmentId: 'dept-hcns', reason: 'Thuộc phạm vi phòng HCNS' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Ticket re-routed.',
+          content: {
+            'application/json': {
+              schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'),
+              example: envelope({ ...EX_TICKET, status: 'Assigned', routedDepartmentId: 'dept-hcns' }),
+            },
+          },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
+  '/tickets/{id}/request-redirect': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'DeptStaff requests a redirect to another department.',
+      description:
+        'Transition `Assigned`/`InProgress` → `RedirectRequested`. Permission: **DeptStaff of the routed department**. Body carries only a `reason` (no target — the reviewing Agent/Lead picks the destination). Inserts `TicketEvent[RedirectRequested]` and notifies the assigned Agent + every active Lead. External status stays `Processing`.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['reason'], properties: { reason: { type: 'string', minLength: 1, maxLength: 2000 } } },
+            example: { reason: 'Ticket này thuộc phạm vi phòng khác' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Redirect requested.',
+          content: { 'application/json': { schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'), example: envelope({ ...EX_TICKET, status: 'RedirectRequested' }) } },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
+  '/tickets/{id}/approve-redirect': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'Approve a redirect request (pick the target dept).',
+      description:
+        'Transition `RedirectRequested` → `Assigned` against a **different** department chosen by the reviewer. Permission: **HelpdeskLead** or the **assigned HelpdeskAgent**. Keeps the Helpdesk assignee; inserts `TicketEvent[Redirected]` and notifies the new dept staff + the requesting staff + the requester. 422 if the target equals the current dept.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['departmentId'], properties: { departmentId: { type: 'string' }, note: { type: 'string', maxLength: 2000 } } },
+            example: { departmentId: 'dept-hcns', note: 'Đúng phạm vi HCNS' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Redirect approved → routed to the new dept.',
+          content: { 'application/json': { schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'), example: envelope({ ...EX_TICKET, status: 'Assigned', routedDepartmentId: 'dept-hcns' }) } },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
+  '/tickets/{id}/refuse-redirect': {
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
+    ],
+    post: {
+      tags: ['Tickets'],
+      summary: 'Refuse a redirect request.',
+      description:
+        'Transition `RedirectRequested` → back to the prior status (`Assigned`/`InProgress`). Permission: **HelpdeskLead** or the **assigned HelpdeskAgent**. A `reason` is **required**. Inserts `TicketEvent[RedirectRefused]` and notifies the DeptStaff who asked.',
+      security: SECURITY,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['reason'], properties: { reason: { type: 'string', minLength: 1, maxLength: 2000 } } },
+            example: { reason: 'Ticket này đúng phòng bạn, vui lòng xử lý' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Redirect refused → back to prior status.',
+          content: { 'application/json': { schema: ENVELOPE_SCHEMA('#/components/schemas/Ticket'), example: envelope({ ...EX_TICKET, status: 'InProgress' }) } },
+        },
+        '401': { $ref: '#/components/responses/Unauthorized401' },
+        '403': { $ref: '#/components/responses/Forbidden403' },
+        '404': { $ref: '#/components/responses/NotFound404' },
+        '409': { $ref: '#/components/responses/Conflict409' },
+        '422': { $ref: '#/components/responses/Validation422' },
+        '500': { $ref: '#/components/responses/Internal500' },
+        '503': { $ref: '#/components/responses/ServiceUnavailable503' },
+      },
+    },
+  },
+
   '/tickets/{id}/progress': {
     parameters: [
       { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Ticket id.' },
