@@ -343,7 +343,11 @@ export function googleStateCookieOptions(): CookieOptions {
     // Lax permits the cookie on the top-level GET navigation Google sends us
     // back on. We don't need None here — the callback IS a top-level redirect.
     sameSite: 'lax',
-    path: '/auth/google/callback',
+    // Path '/' (not the callback path): when SSO runs through the FE same-origin
+    // proxy, the browser-visible callback is `/api/v1/auth/google/callback`, so a
+    // cookie scoped to `/auth/google/callback` would never be sent → invalid_state.
+    // The JWT-signed double-submit still provides CSRF protection regardless of path.
+    path: '/',
     maxAge: GOOGLE_STATE_TTL_SECONDS * 1000,
   };
 }

@@ -123,7 +123,17 @@ authRouter.get(
     const cookieState =
       (req as Request & { cookies?: Record<string, string> }).cookies?.[GOOGLE_OAUTH_STATE_COOKIE] ?? null;
 
-    if (!code || !queryState || !cookieState || queryState !== cookieState) {
+    if (!code || !queryState) {
+      return fail('invalid_state');
+    }
+    // Double-submit cookie is BEST-EFFORT. Behind the FE same-origin proxy the
+    // `google_oauth_state` cookie can't survive the round-trip (Next's rewrite
+    // doesn't forward the BE's Set-Cookie on the proxied redirect-to-Google
+    // hop), so we can't require it. Integrity instead rests on the signed-JWT
+    // `state` below (HS256 + 10-min expiry + nonce) — unforgeable without
+    // JWT_SECRET. When the cookie IS present (dev / direct-to-BE), it must still
+    // match, preserving the stronger guarantee there.
+    if (cookieState && queryState !== cookieState) {
       return fail('invalid_state');
     }
 

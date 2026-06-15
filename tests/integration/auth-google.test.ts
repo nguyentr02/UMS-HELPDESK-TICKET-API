@@ -162,12 +162,24 @@ describe('BE-S12 — Google OAuth routes', () => {
       expect(res.headers.location).toBe('http://localhost:3000/login?error=invalid_state');
     });
 
-    it('M31-BE-S12-X2: missing cookie → 302 /login?error=invalid_state', async () => {
+    it('M31-BE-S12-X2: missing cookie + VALID signed state → succeeds (proxy path)', async () => {
+      // Behind the FE same-origin proxy the state cookie can't survive the
+      // round-trip, so the callback must accept a validly-signed state with no
+      // cookie. Integrity rests on the JWT signature, not the cookie.
       const { state } = await startFlow('/');
       const res = await request(app)
         .get('/auth/google/callback')
         .query({ code: 'ok', state });
-      // No cookie sent → mismatch.
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('http://localhost:3000/');
+      expect(String(res.headers['set-cookie'])).toMatch(/ums_session=/);
+    });
+
+    it('M31-BE-S12-X2b: missing cookie + FORGED state → 302 /login?error=invalid_state', async () => {
+      // Signature-only path still rejects an unsigned/forged state.
+      const res = await request(app)
+        .get('/auth/google/callback')
+        .query({ code: 'ok', state: 'forged-unsigned-state' });
       expect(res.status).toBe(302);
       expect(res.headers.location).toBe('http://localhost:3000/login?error=invalid_state');
     });
