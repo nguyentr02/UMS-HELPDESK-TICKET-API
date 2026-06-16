@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { Notification } from '@prisma/client';
+import { waitUntil } from '@vercel/functions';
 
 import { env } from '../config/env.js';
 import { toNotificationItemDTO } from './dto.js';
@@ -28,16 +29,31 @@ export const notificationSink = new AsyncLocalStorage<Notification[]>();
 export function emitToUsers(userIds: string[], event: string, payload?: unknown): void {
   if (!env.REALTIME_EMIT_URL || !env.REALTIME_EMIT_SECRET || userIds.length === 0) return;
   const url = `${env.REALTIME_EMIT_URL.replace(/\/+$/, '')}/emit`;
-  void fetch(url, {
+  const sent = fetch(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'x-emit-secret': env.REALTIME_EMIT_SECRET,
     },
     body: JSON.stringify({ userIds, event, payload }),
-  }).catch((err) => {
-    logger.warn({ err: String(err) }, 'realtime emit failed');
-  });
+  })
+    .then((res) => {
+      if (!res.ok) logger.warn({ status: res.status }, 'realtime emit returned non-2xx');
+    })
+    .catch((err) => {
+      logger.warn({ err: String(err) }, 'realtime emit failed');
+    });
+
+  // CRITICAL on Vercel: the serverless function is frozen the moment the
+  // response is sent, which kills this fire-and-forget fetch before it reaches
+  // the realtime server (→ events silently never delivered). waitUntil keeps
+  // the invocation alive until the emit settles. Outside Vercel (long-running
+  // local process) waitUntil throws — the promise still runs to completion.
+  try {
+    waitUntil(sent);
+  } catch {
+    void sent;
+  }
 }
 
 /** Emit one `notification:new` per created notification to its owner's room. */
