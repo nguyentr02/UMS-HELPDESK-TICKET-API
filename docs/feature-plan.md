@@ -315,6 +315,7 @@ The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:
 | `POST /auth/login` | `{ username, password }` | 200 envelope `{ user }` + `Set-Cookie` JWT | 401 on bad credentials; rate-limited; opaque error message ("Sai tài khoản hoặc mật khẩu") so attackers can't enumerate. |
 | `POST /auth/logout` | — | 200 empty envelope + `Set-Cookie` clearing | Idempotent; no 401 if cookie missing. |
 | `GET /auth/me` | — | 200 envelope `{ user }` if cookie valid, 401 otherwise | The FE calls this on app boot to rehydrate `SessionProvider`. |
+| `GET /auth/realtime-token` | — | 200 envelope `{ token }` (60 s HS256 JWT, `sub = userId`), 401 otherwise | `requireAuth`-gated; the FE hands this token to the Socket.IO server's handshake. See §G.1. |
 
 ### Middleware order
 
@@ -330,6 +331,16 @@ Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT ag
 - **Triggered by the lifecycle**: `TICKET_CLOSED` to requester (close handler), `TICKET_ASSIGNED` to agent (assign handler), `TICKET_FORWARDED` to dept staff (forward handler), optional `STATUS_CHANGED` to requester (progress handler). All inserted in the same transaction as the status change.
 - **Daily reminder** — bullmq repeatable job, cron `0 9 * * 1-5`, TZ `Asia/Ho_Chi_Minh`, public-holiday skip via `lib/calendar.js` (config file of dates). For every Helpdesk agent with ≥1 backlog ticket (`status IN {Pending, Assigned, Redirected}`, `helpdeskAssigneeId = agent.id`), insert one `DAILY_REMINDER` notification with `payload = { tickets: [{id, code, severity, ageDays}] }`. **Idempotent** via dedupe key `reminder:{agentId}:{YYYY-MM-DD}` stored in Redis (24h TTL).
 - **Runtime split**: local dev runs `worker.ts` as a long-running `tsx --watch` process consuming the bullmq queue. On **Vercel**, `vercel.json` `crons:` hits `POST /jobs/daily-reminder` (shared-secret-guarded) on the same `0 9 * * 1-5` schedule — the handler in `jobs/daily-reminder.ts` is the single source of truth and is invoked by both runtimes (long-running consumer locally, scheduled serverless function in prod).
+
+### G.1 Realtime push (Socket.IO) for the notification bell
+
+Vercel serverless functions can't hold a WebSocket open, so live delivery runs through a **separate always-on service** (`feat-helpdesk-realtime`, deployed on Render) that owns the socket connections. The BE never holds a socket — it only *pushes*:
+
+- **Capture, not call-site edits:** a Prisma `$use` middleware (`lib/prisma.ts`) records every created `Notification` into a per-request `AsyncLocalStorage` sink (`lib/realtime.ts`); the `realtimeCollect` middleware runs each request inside that sink and, **only after the response finishes with status < 400** (so the transaction committed), emits `notification:new` per row. A rolled-back/errored request emits nothing — no phantom notifications. This avoids touching the ~25 `notification.create` sites.
+- **Fan-out:** `emitToUsers()` does a fire-and-forget `POST {REALTIME_EMIT_URL}/emit` with the shared `x-emit-secret` header. Best-effort: never blocks or fails a request, and is a **no-op when `REALTIME_EMIT_URL`/`REALTIME_EMIT_SECRET` are unset** (local/test/cron). The daily-reminder cron runs outside a request, so its rows surface via the FE poll, not the socket.
+- **Handshake auth:** the FE fetches `GET /auth/realtime-token` (rides the session cookie), then connects with that 60 s JWT. The realtime server verifies it with the **shared `JWT_SECRET`** (HS256, reads `sub`) and joins the socket to room `user:<id>`.
+- **FE fallback:** the 30 s `useNotifications` poll always runs, so a sleeping Render instance or a dropped socket only delays delivery, never loses it.
+- **Env:** `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET` (must match the realtime server's `EMIT_SECRET`); `JWT_SECRET` is shared with the realtime server.
 
 ## H. Dependencies (Node, ES modules)
 

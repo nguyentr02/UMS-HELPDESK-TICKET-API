@@ -38,6 +38,13 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().min(1).optional(),
   JOB_SECRET: z.string().min(8).optional(),
 
+  // Realtime (Socket.IO) push for the notification bell. Optional — when either
+  // is unset, emits are silently skipped and the FE falls back to its 30s poll.
+  // EMIT_SECRET must match the realtime server's value; URL is its base origin
+  // (e.g. "https://ums-helpdesk-realtime.onrender.com"), POST /emit is appended.
+  REALTIME_EMIT_URL: z.string().url().optional(),
+  REALTIME_EMIT_SECRET: z.string().min(1).optional(),
+
   STORAGE_DRIVER: z.enum(['local', 'memory', 'blob', 's3']).default('local'),
   EVENT_PUBLISHER_DRIVER: z.enum(['logger', 'qstash']).default('logger'),
   QSTASH_TOKEN: z.string().min(1).optional(),

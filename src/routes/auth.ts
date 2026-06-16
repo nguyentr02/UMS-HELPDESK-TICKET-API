@@ -16,6 +16,7 @@ import {
   sanitizeNextPath,
   sessionCookieOptions,
   signGoogleState,
+  signRealtimeToken,
   signSessionJwt,
   upsertGoogleUser,
   verifyCredentials,
@@ -73,6 +74,16 @@ authRouter.post('/auth/logout', (req: Request, res: Response) => {
  */
 authRouter.get('/auth/me', requireAuth, (req: Request, res: Response) => {
   res.json(ok({ user: req.user }, req.requestId));
+});
+
+/**
+ * `GET /auth/realtime-token` — issue a short-lived (60 s) JWT the FE passes to
+ * the Socket.IO server's handshake. Gated by `requireAuth`, so it rides the
+ * existing session cookie (works first-party through the FE proxy); the socket
+ * server verifies it with the shared JWT_SECRET. 401 when not signed in.
+ */
+authRouter.get('/auth/realtime-token', requireAuth, (req: Request, res: Response) => {
+  res.json(ok({ token: signRealtimeToken(req.user!.id) }, req.requestId));
 });
 
 // ─── Google OAuth (Phase 12) ────────────────────────────────────────────────

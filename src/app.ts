@@ -8,6 +8,7 @@ import { logger } from './lib/logger.js';
 import { fail, ok } from './lib/envelope.js';
 import { NotFoundError } from './lib/errors.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { realtimeCollectMiddleware } from './middleware/realtimeCollect.js';
 import { authMiddleware, requireAuth } from './middleware/auth.js';
 import { requireRole } from './middleware/rbac.js';
 import { errorMiddleware } from './middleware/error.js';
@@ -68,6 +69,10 @@ export function buildApp(): Express {
   );
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
+
+  // Collect notifications created during a request and push them over the
+  // socket once the response succeeds (the tx has committed). Best-effort.
+  app.use(realtimeCollectMiddleware);
 
   // Healthz is public AND unaffected by the kill-switch — monitoring stays alive.
   app.use(healthzRouter);

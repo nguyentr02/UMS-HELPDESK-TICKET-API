@@ -76,6 +76,19 @@ export function signSessionJwt(user: SessionUser): string {
   return jwt.sign(payload, requireSecret(), options);
 }
 
+/** Short-lived token the FE hands to the Socket.IO server to authenticate its
+ *  connection. The realtime server verifies it with the SAME JWT_SECRET (HS256)
+ *  and reads `sub` to scope the socket to that user's room. */
+export const REALTIME_TOKEN_TTL_SECONDS = 60;
+
+/** Sign a 60 s HS256 JWT carrying only the user id, for the realtime socket handshake. */
+export function signRealtimeToken(userId: string): string {
+  return jwt.sign({ sub: userId }, requireSecret(), {
+    algorithm: 'HS256',
+    expiresIn: REALTIME_TOKEN_TTL_SECONDS,
+  });
+}
+
 /** Verify a JWT and return the carried session user. Throws `UnauthenticatedError` on any failure. */
 export function parseSessionJwt(token: string): SessionUser {
   try {

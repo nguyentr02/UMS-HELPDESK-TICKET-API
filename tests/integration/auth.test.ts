@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { createTestApp } from '../helpers/app-factory';
 import { disconnect, resetDb, testPrisma } from '../helpers/test-db';
 import { loginAs } from '../helpers/login-as';
@@ -88,6 +89,24 @@ describe('BE-S11 — Demo auth (login / logout / me)', () => {
       ? (Array.isArray(setCookie) ? setCookie.join('\n') : String(setCookie))
       : '';
     expect(cookieHeader).toMatch(/ums_session=;|ums_session=$|Expires=/i);
+  });
+
+  it('M31-BE-S11-RT1: GET /auth/realtime-token with no cookie → 401', async () => {
+    const res = await request(app).get('/auth/realtime-token');
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ error: { code: 'unauthenticated' } });
+  });
+
+  it('M31-BE-S11-RT2: with the session cookie → 200 + a JWT carrying sub=userId', async () => {
+    const cookies = await loginAs(app, SV);
+    const res = await request(app).get('/auth/realtime-token').set('Cookie', cookies);
+    expect(res.status).toBe(200);
+    const token = res.body.data.token as string;
+    expect(typeof token).toBe('string');
+    // The realtime server reads `sub` after verifying with the shared secret;
+    // here we just decode (no verify) to confirm the identity is carried.
+    const decoded = jwt.decode(token) as { sub?: string } | null;
+    expect(decoded?.sub).toBe('u-sv-1');
   });
 
   it('M31-BE-S11-I1: round-trip — login → cookie → /auth/me → logout → me 401', async () => {
