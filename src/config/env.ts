@@ -44,6 +44,10 @@ const EnvSchema = z.object({
   // (e.g. "https://ums-helpdesk-realtime.onrender.com"), POST /emit is appended.
   REALTIME_EMIT_URL: z.string().url().optional(),
   REALTIME_EMIT_SECRET: z.string().min(1).optional(),
+  // Secret for signing the short-lived socket-handshake token. Optional — falls
+  // back to JWT_SECRET. Set a dedicated value (matching the realtime server's
+  // REALTIME_JWT_SECRET) so the socket service never holds the session key.
+  REALTIME_JWT_SECRET: z.string().min(1).optional(),
 
   STORAGE_DRIVER: z.enum(['local', 'memory', 'blob', 's3']).default('local'),
   EVENT_PUBLISHER_DRIVER: z.enum(['logger', 'qstash']).default('logger'),

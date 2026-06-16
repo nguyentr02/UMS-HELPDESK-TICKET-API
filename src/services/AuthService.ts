@@ -83,7 +83,11 @@ export const REALTIME_TOKEN_TTL_SECONDS = 60;
 
 /** Sign a 60 s HS256 JWT carrying only the user id, for the realtime socket handshake. */
 export function signRealtimeToken(userId: string): string {
-  return jwt.sign({ sub: userId }, requireSecret(), {
+  // Dedicated secret so the realtime service never holds the session-signing
+  // key (least privilege) and can be rotated without logging anyone out.
+  // Falls back to JWT_SECRET when REALTIME_JWT_SECRET is unset.
+  const secret = env.REALTIME_JWT_SECRET ?? requireSecret();
+  return jwt.sign({ sub: userId }, secret, {
     algorithm: 'HS256',
     expiresIn: REALTIME_TOKEN_TTL_SECONDS,
   });
