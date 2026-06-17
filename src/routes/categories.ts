@@ -5,6 +5,7 @@ import { asyncHandler } from '../lib/asyncHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
 import { zodValidate } from '../middleware/zodValidate.js';
+import { emitBroadcast } from '../lib/realtime.js';
 import { CategoryService } from '../services/CategoryService.js';
 
 const createBody = z.object({
@@ -36,6 +37,7 @@ categoriesRouter.post(
   zodValidate(createBody),
   asyncHandler(async (req, res) => {
     const cat = await CategoryService.create(req.body);
+    emitBroadcast('categories:changed');
     res.status(201).json(ok(cat, req.requestId));
   }),
 );
@@ -47,6 +49,7 @@ categoriesRouter.patch(
   zodValidate(updateBody),
   asyncHandler(async (req, res) => {
     const cat = await CategoryService.update(req.params.id, req.body);
+    emitBroadcast('categories:changed');
     res.json(ok(cat, req.requestId));
   }),
 );
@@ -57,6 +60,7 @@ categoriesRouter.delete(
   requireRole('Admin'),
   asyncHandler(async (req, res) => {
     await CategoryService.remove(req.params.id);
+    emitBroadcast('categories:changed');
     res.json(ok({ id: req.params.id }, req.requestId));
   }),
 );

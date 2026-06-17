@@ -26,8 +26,18 @@ export const notificationSink = new AsyncLocalStorage<Notification[]>();
  * safety net. When the env isn't configured, this is a silent no-op (so local
  * dev / tests / the cron run without a realtime server).
  */
-export function emitToUsers(userIds: string[], event: string, payload?: unknown): void {
-  if (!env.REALTIME_EMIT_URL || !env.REALTIME_EMIT_SECRET || userIds.length === 0) return;
+/**
+ * Fire-and-forget POST to the realtime server's /emit. Never throws/blocks; a
+ * silent no-op when the env isn't configured (local/test/cron).
+ *
+ * CRITICAL on Vercel: the serverless function is frozen the moment the response
+ * is sent, which kills an un-awaited fetch before it reaches the realtime
+ * server (→ events silently never delivered). waitUntil keeps the invocation
+ * alive until the emit settles. Outside Vercel (long-running local process)
+ * waitUntil throws — the promise still runs to completion.
+ */
+function postEmit(body: Record<string, unknown>): void {
+  if (!env.REALTIME_EMIT_URL || !env.REALTIME_EMIT_SECRET) return;
   const url = `${env.REALTIME_EMIT_URL.replace(/\/+$/, '')}/emit`;
   const sent = fetch(url, {
     method: 'POST',
@@ -35,7 +45,7 @@ export function emitToUsers(userIds: string[], event: string, payload?: unknown)
       'content-type': 'application/json',
       'x-emit-secret': env.REALTIME_EMIT_SECRET,
     },
-    body: JSON.stringify({ userIds, event, payload }),
+    body: JSON.stringify(body),
   })
     .then((res) => {
       if (!res.ok) logger.warn({ status: res.status }, 'realtime emit returned non-2xx');
@@ -43,17 +53,22 @@ export function emitToUsers(userIds: string[], event: string, payload?: unknown)
     .catch((err) => {
       logger.warn({ err: String(err) }, 'realtime emit failed');
     });
-
-  // CRITICAL on Vercel: the serverless function is frozen the moment the
-  // response is sent, which kills this fire-and-forget fetch before it reaches
-  // the realtime server (→ events silently never delivered). waitUntil keeps
-  // the invocation alive until the emit settles. Outside Vercel (long-running
-  // local process) waitUntil throws — the promise still runs to completion.
   try {
     waitUntil(sent);
   } catch {
     void sent;
   }
+}
+
+/** Push an event to specific users' rooms. */
+export function emitToUsers(userIds: string[], event: string, payload?: unknown): void {
+  if (userIds.length === 0) return;
+  postEmit({ userIds, event, payload });
+}
+
+/** Push an event to every connected client (e.g. reference-data changes). */
+export function emitBroadcast(event: string, payload?: unknown): void {
+  postEmit({ broadcast: true, event, payload });
 }
 
 /** Emit one `notification:new` per created notification to its owner's room. */

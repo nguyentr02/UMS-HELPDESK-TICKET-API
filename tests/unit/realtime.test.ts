@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { emitNewNotifications, emitToUsers } from '../../src/lib/realtime.js';
+import { emitBroadcast, emitNewNotifications, emitToUsers } from '../../src/lib/realtime.js';
 
 /**
  * The test env never sets REALTIME_EMIT_URL/SECRET, so realtime must be inert —
@@ -38,6 +38,12 @@ describe('lib/realtime — disabled when env is unset', () => {
   it('emitToUsers skips empty recipient lists', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     emitToUsers([], 'notification:new', {});
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('emitBroadcast makes no fetch when realtime is disabled', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    emitBroadcast('categories:changed');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
