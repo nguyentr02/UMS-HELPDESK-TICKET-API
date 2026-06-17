@@ -8,17 +8,23 @@ import { toNotificationItemDTO } from './dto.js';
 import { logger } from './logger.js';
 
 /**
- * Per-request collector for notifications created during the request. A Prisma
- * `$use` middleware (see lib/prisma.ts) pushes every created Notification row
- * into the active store; the realtime middleware (middleware/realtimeCollect.ts)
- * runs each request inside `notificationSink.run([], …)` and, once the response
- * has finished successfully (so the transaction has committed), emits them.
+ * Per-request realtime collector. A Prisma `$use` middleware (see lib/prisma.ts)
+ * records, into the active store, every Notification created and whether any
+ * Ticket row was written. The realtime middleware (middleware/realtimeCollect.ts)
+ * runs each request inside `realtimeSink.run(...)` and, once the response has
+ * finished successfully (so the transaction committed), emits:
+ *   - one `notification:new` per created notification (to its owner), and
+ *   - a single `tickets:changed` broadcast if any ticket was mutated (so every
+ *     open queue/list — and the dashboard — refetches live).
  *
  * Outside a request (e.g. the daily-reminder cron) there's no active store, so
- * the middleware push is a no-op and those notifications just surface via the
- * FE's polling fallback.
+ * the middleware records nothing and those changes surface via the FE poll.
  */
-export const notificationSink = new AsyncLocalStorage<Notification[]>();
+export interface RealtimeSink {
+  notifications: Notification[];
+  ticketTouched: boolean;
+}
+export const realtimeSink = new AsyncLocalStorage<RealtimeSink>();
 
 /**
  * Fire-and-forget push to the realtime server's POST /emit. Never throws and
