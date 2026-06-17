@@ -334,13 +334,25 @@ Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT ag
 
 ### G.1 Realtime push (Socket.IO) for the notification bell
 
-Vercel serverless functions can't hold a WebSocket open, so live delivery runs through a **separate always-on service** (`feat-helpdesk-realtime`, deployed on Render) that owns the socket connections. The BE never holds a socket — it only *pushes*:
+Vercel serverless functions can't hold a WebSocket open, so live delivery runs through a **separate always-on service** (`feat-helpdesk-realtime` / repo `UMS-HELPDESK-SOCKET`, deployed on Render) that owns the socket connections. The BE never holds a socket — it only *pushes*.
 
-- **Capture, not call-site edits:** a Prisma `$use` middleware (`lib/prisma.ts`) records every created `Notification` into a per-request `AsyncLocalStorage` sink (`lib/realtime.ts`); the `realtimeCollect` middleware runs each request inside that sink and, **only after the response finishes with status < 400** (so the transaction committed), emits `notification:new` per row. A rolled-back/errored request emits nothing — no phantom notifications. This avoids touching the ~25 `notification.create` sites.
-- **Fan-out:** `emitToUsers()` does a fire-and-forget `POST {REALTIME_EMIT_URL}/emit` with the shared `x-emit-secret` header. Best-effort: never blocks or fails a request, and is a **no-op when `REALTIME_EMIT_URL`/`REALTIME_EMIT_SECRET` are unset** (local/test/cron). The daily-reminder cron runs outside a request, so its rows surface via the FE poll, not the socket.
-- **Handshake auth:** the FE fetches `GET /auth/realtime-token` (rides the session cookie), then connects with that 60 s JWT. The realtime server verifies it with the **shared `JWT_SECRET`** (HS256, reads `sub`) and joins the socket to room `user:<id>`.
-- **FE fallback:** the 30 s `useNotifications` poll always runs, so a sleeping Render instance or a dropped socket only delays delivery, never loses it.
-- **Env:** `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET` (must match the realtime server's `EMIT_SECRET`); `JWT_SECRET` is shared with the realtime server.
+**Capture, not call-site edits.** A Prisma `$use` middleware (`lib/prisma.ts`) records, into a per-request `AsyncLocalStorage` sink (`realtimeSink` in `lib/realtime.ts`): every created `Notification`, and whether any `Ticket` row was written. The `realtimeCollect` middleware runs each request inside that sink and, **only after the response finishes with status < 400** (so the transaction committed), emits. A rolled-back/errored request emits nothing — no phantom events. This avoids touching the ~25 ticket/notification write sites.
+
+**Events emitted:**
+
+| Event | Target | When | FE reaction |
+|---|---|---|---|
+| `notification:new` | the recipient's `user:<id>` room | a `Notification` row is created | prepend to `['notifications']` + toast; also `invalidate(['ticket', ticketId])` so the open detail (comments/status) updates live |
+| `tickets:changed` | **broadcast** (all clients) | any `Ticket` write (create/update/delete) | `invalidate(['tickets'])` (queues/lists) + analytics summary → live queues + dashboard |
+| `categories:changed` | **broadcast** | category create/update/delete (emitted explicitly in `routes/categories.ts`) | `invalidate(['categories'])` |
+
+**Fan-out:** `emitToUsers()` / `emitBroadcast()` do a fire-and-forget `POST {REALTIME_EMIT_URL}/emit` (`x-emit-secret` header; `{userIds}` or `{broadcast:true}`). Best-effort: never blocks/fails a request, **no-op when `REALTIME_EMIT_URL`/`REALTIME_EMIT_SECRET` are unset** (local/test/cron). **Vercel gotcha:** the emit is wrapped in `@vercel/functions` `waitUntil` — without it the frozen-after-response function kills the fetch before it reaches Render (events silently never delivered).
+
+**Handshake auth:** the FE fetches `GET /auth/realtime-token` (rides the session cookie via the proxy), then connects with that 60 s JWT. The realtime server verifies it with the **dedicated `REALTIME_JWT_SECRET`** (HS256, reads `sub`; NOT the session `JWT_SECRET` — least privilege) and joins the socket to room `user:<id>`.
+
+**FE fallback:** the `useNotifications` 60 s poll + per-query `staleTime` always run, so a sleeping Render instance or dropped socket only delays delivery, never loses it; reconnect invalidates to catch missed events. A pure comment doesn't write the `Ticket` row, so it fires `notification:new` (detail updates) but not `tickets:changed` (queue rows unchanged).
+
+**Env:** `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET` (= realtime server's `EMIT_SECRET`), `REALTIME_JWT_SECRET` (= realtime server's `REALTIME_JWT_SECRET`).
 
 ## H. Dependencies (Node, ES modules)
 
