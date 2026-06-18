@@ -350,7 +350,7 @@ Vercel serverless functions can't hold a WebSocket open, so live delivery runs t
 
 **Handshake auth:** the FE fetches `GET /auth/realtime-token` (rides the session cookie via the proxy), then connects with that 60 s JWT. The realtime server verifies it with the **dedicated `REALTIME_JWT_SECRET`** (HS256, reads `sub`; NOT the session `JWT_SECRET` — least privilege) and joins the socket to room `user:<id>`.
 
-**FE fallback:** the `useNotifications` 60 s poll + per-query `staleTime` always run, so a sleeping Render instance or dropped socket only delays delivery, never loses it; reconnect invalidates to catch missed events. A pure comment doesn't write the `Ticket` row, so it fires `notification:new` (detail updates) but not `tickets:changed` (queue rows unchanged).
+**FE freshness:** notifications are **socket-driven (no background poll)** — mount fetch (history) + `notification:new` push + reconnect-invalidate + optimistic mutations. If the socket is fully down (sleeping Render), new items surface on the next reconnect/mount, so keep the realtime server warm. A pure comment doesn't write the `Ticket` row, so it fires `notification:new` (detail updates) but not `tickets:changed` (queue rows unchanged).
 
 **Env:** `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET` (= realtime server's `EMIT_SECRET`), `REALTIME_JWT_SECRET` (= realtime server's `REALTIME_JWT_SECRET`).
 
