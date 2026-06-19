@@ -3,6 +3,7 @@ import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { env } from '../config/env.js';
 import { ForbiddenError, AppError } from '../lib/errors.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import { parseSessionJwt, SESSION_COOKIE } from '../services/AuthService.js';
 
 export const attachmentsUploadRouter = Router();
 
@@ -12,10 +13,11 @@ export const attachmentsUploadRouter = Router();
  * obtain a short-lived signed token, then uploads the file *directly* to
  * Vercel Blob — bypassing the function-body limit (Hobby plan: 4.5 MB).
  *
- * Auth note: the browser SDK does **not** forward our X-Mock-* SSO headers
- * when it hits this endpoint, so we can't gate with `requireAuth`. Practice-
- * mode trade-off — the worst case is someone burning a tiny bit of our Blob
- * quota. With real SSO we'd validate a session cookie here instead.
+ * Auth: we can't use route-level `requireAuth` because Vercel's server→server
+ * `upload-completed` callback hits this same endpoint without a cookie. Instead
+ * we gate inside `onBeforeGenerateToken` — the browser token request carries
+ * the first-party session cookie (via the same-origin proxy), so only an
+ * authenticated caller can mint a token; the callback branch is unaffected.
  */
 attachmentsUploadRouter.post(
   '/attachments/upload-url',
@@ -41,17 +43,33 @@ attachmentsUploadRouter.post(
         body,
         request: fakeRequest,
         token: blobToken,
-        onBeforeGenerateToken: async () => ({
-          // Mirror multer's caps. The Blob SDK enforces these client-side
-          // before any bytes leave the browser.
-          allowedContentTypes: undefined, // any
-          maximumSizeInBytes: 10 * 1024 * 1024,
-          // Let Vercel append a random tag so duplicate filenames don't
-          // collide (two uploads of the same screenshot.png both succeed
-          // as screenshot-AbCd1.png / screenshot-XyZ45.png). Count + size
-          // caps are still enforced — uniqueness is just removed.
-          addRandomSuffix: true,
-        }),
+        onBeforeGenerateToken: async () => {
+          // Auth gate: only an authenticated session may mint an upload token.
+          // This branch runs ONLY for the browser-initiated token request,
+          // which carries the first-party session cookie via the same-origin
+          // proxy — the Vercel `upload-completed` callback (server→server, no
+          // cookie) takes the other branch in handleUpload, so it's unaffected.
+          const token = (req as typeof req & { cookies?: Record<string, string> }).cookies?.[
+            SESSION_COOKIE
+          ];
+          try {
+            if (!token) throw new Error('no session');
+            parseSessionJwt(token); // throws on missing/invalid/expired
+          } catch {
+            throw new ForbiddenError('Yêu cầu xác thực để tải lên');
+          }
+          return {
+            // Mirror multer's caps. The Blob SDK enforces these client-side
+            // before any bytes leave the browser.
+            allowedContentTypes: undefined, // any
+            maximumSizeInBytes: 10 * 1024 * 1024,
+            // Let Vercel append a random tag so duplicate filenames don't
+            // collide (two uploads of the same screenshot.png both succeed
+            // as screenshot-AbCd1.png / screenshot-XyZ45.png). Count + size
+            // caps are still enforced — uniqueness is just removed.
+            addRandomSuffix: true,
+          };
+        },
         onUploadCompleted: async () => {
           /* no-op — the FE follows up with POST /tickets carrying the URL */
         },
