@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env.js';
+import { prisma } from '../lib/prisma.js';
 import { UnauthenticatedError } from '../lib/errors.js';
 import { parseSessionJwt, SESSION_COOKIE } from '../services/AuthService.js';
 
@@ -97,8 +98,40 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
   next();
 }
 
-/** Hard auth gate — throws `401 unauthenticated` if `req.user` isn't set. */
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+/**
+ * Hard auth gate — `401 unauthenticated` if there's no session.
+ *
+ * For a **real (cookie) session** it also **re-validates against the DB on every
+ * request**: a deactivated/deleted user is rejected immediately (not after the
+ * 8 h token expires), and `req.user`'s role/department are refreshed from the DB
+ * (the source of truth) so an admin's role/dept change takes effect at once
+ * instead of lingering in the stale JWT. The mock-header path (dev/test only,
+ * no cookie) is trusted as-is so it can inject arbitrary identities.
+ */
+export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   if (!req.user) return next(new UnauthenticatedError());
-  next();
+
+  const hasCookie = !!(req as Request & { cookies?: Record<string, string> }).cookies?.[SESSION_COOKIE];
+  if (!hasCookie) return next(); // mock-header session (non-prod) — trust as-is
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, role: true, departmentId: true, displayName: true, isActive: true },
+    });
+    if (!user || !user.isActive) {
+      return next(new UnauthenticatedError('Phiên đăng nhập không còn hợp lệ'));
+    }
+    // Refresh from the DB source of truth (role/dept may have changed since the
+    // token was issued).
+    req.user = {
+      id: user.id,
+      role: user.role as Role,
+      departmentId: user.departmentId,
+      displayName: user.displayName ?? undefined,
+    };
+    return next();
+  } catch (err) {
+    return next(err as Error);
+  }
 }

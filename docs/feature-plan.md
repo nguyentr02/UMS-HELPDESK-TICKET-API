@@ -367,6 +367,34 @@ Vercel serverless functions can't hold a WebSocket open, so live delivery runs t
 - **Performance:** list endpoints paginated (default 20, max 100); the indexes above; attachment streaming (not buffered); the reminder job batches one DB query per agent group.
 - **i18n:** error `message` fields in Vietnamese (the API is internal); `code` stable ASCII for clients to map.
 
+## I.1 Security — implemented controls (status)
+
+What's actually in place (verified in code), so future work knows the baseline:
+
+**Authentication**
+- Session = signed **JWT in an HttpOnly + Secure + SameSite cookie** (`AuthService`), made **first-party** via the FE same-origin proxy (fixes Safari/iOS ITP).
+- Passwords **bcrypt**-hashed; `POST /auth/login` is **rate-limited** and returns an **opaque** error (no account enumeration).
+- **Google SSO** (OAuth code flow): signed-JWT `state`, ID-token verified via Google JWKS, `email_verified` required, **domain allowlist**.
+- **Session re-validation (added 2026-06):** for a real (cookie) session, `requireAuth` **re-checks the user against the DB on every request** — a **deactivated/deleted user is rejected immediately** (not after the 8 h token), and `req.user` role/department are **refreshed from the DB** so admin changes take effect at once. The mock-header path (dev/test only) is exempt.
+
+**Authorization**
+- **RBAC at route + service layer** (defence in depth). Per-ticket guards on **every read *and* write**: `assertCanViewTicket` (detail/history/comments/attachment download) and `assertCanPerform` (state-machine transitions: role + dept-match for DeptStaff, assignee-match for Agent). A stale client view grants no power — the server is the boundary.
+- Sensitive user fields (`passwordHash`, `googleId`, `ssoSubject`) **stripped from DTOs**. Admin-only user CRUD (`requireRole('Admin')`); email immutable; no self-delete.
+
+**Input / transport / data**
+- **Zod** validation on every mutation; **Prisma parameterised** queries (no SQLi); React auto-escaping (no `dangerouslySetInnerHTML`).
+- Uploads: **MIME allowlist, ≤10 MB, ≤5 files**, stored outside webroot, streamed download with authz.
+- **Helmet** (incl. CSP); **CORS** scoped with credentials; HTTPS (Vercel/Render).
+- **Realtime:** short-lived (60 s) handshake JWT signed with a **dedicated `REALTIME_JWT_SECRET`** (least privilege); `/emit` guarded by a shared secret; broadcast events carry **only "changed" signals, no data**; per-user payloads go to that user's room.
+- Audit: `TicketEvent` table; pino logs with `requestId`; **no passwords/secrets/PII in logs**.
+
+**Known gaps / deferred** (not yet done — tracked):
+- DeptStaff **scoping bug** to fully resolve + an IDOR sweep across all endpoints.
+- **Rotate the Google Client Secret** after the demo.
+- **Dependency audit** (`npm audit` flagged some highs/criticals).
+- File **content-type sniffing** (magic bytes) + **virus scan** (hook only).
+- Client-side **localStorage** holds some lists (e.g. admin user directory) ~24 h (wiped on logout); no MFA; rate limits only on a few endpoints.
+
 ## J. Risks & mitigations (technical)
 
 | Risk | Mitigation |
