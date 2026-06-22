@@ -389,12 +389,11 @@ What's actually in place (verified in code), so future work knows the baseline:
 - Audit: `TicketEvent` table; pino logs with `requestId`; **no passwords/secrets/PII in logs**.
 
 **Known gaps / deferred** (tracked):
-- **Rotate the Google Client Secret** after the demo.
-- **Dependency audit** (`npm audit` flagged some highs/criticals).
+- **Next.js major upgrade** (FE) — `next@14` has high-severity advisories fixed only in `next@16` (breaking); a separate migration, deferred.
 - Wire a **real** virus scanner into the hook (currently no-op); content-sniff the Blob-direct upload path (BE never sees those bytes).
 - Client-side **localStorage** holds some lists (e.g. admin user directory) ~24 h (wiped on logout); no MFA; rate limits only on a few endpoints.
 
-*(Done since: IDOR sweep — no gaps found, all id-addressed endpoints scoped, locked by `scoping.test.ts`; DeptStaff scoping fixed via per-request DB re-validation; upload allowlist + magic-byte sniffing + virus-scan hook; upload-url broker auth-gated.)*
+*(Done/decided: IDOR sweep — no gaps found, all id-addressed endpoints scoped, locked by `scoping.test.ts`; DeptStaff scoping fixed via per-request DB re-validation; upload allowlist + magic-byte sniffing + virus-scan hook; upload-url broker auth-gated; **Google Client Secret — reviewed, not exposed → no rotation needed**; **dependency audit — BE multer + undici (high) fixed, FE + realtime `ws` DoS (high) fixed, all prod-dep highs cleared except the deferred Next upgrade; 2 non-exploitable transitive moderates accepted (gaxios→uuid, no `buf` path)**.)*
 
 ## J. Risks & mitigations (technical)
 
