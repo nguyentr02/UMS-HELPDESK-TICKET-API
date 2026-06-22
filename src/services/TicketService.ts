@@ -11,6 +11,7 @@ import {
   TICKET_COMMENT_INCLUDE,
   TICKET_EVENT_INCLUDE,
   TICKET_INCLUDE,
+  TICKET_LIST_INCLUDE,
   toTicketCommentDTO,
   toTicketDTO,
   toTicketEventDTO,
@@ -248,7 +249,7 @@ export const TicketService = {
         .map((c) => c.id);
       const items = await prisma.ticket.findMany({
         where: { id: { in: pageIds } },
-        include: TICKET_INCLUDE,
+        include: TICKET_LIST_INCLUDE,
       });
       const byId = new Map(items.map((t) => [t.id, t]));
       const ordered = pageIds
@@ -270,7 +271,7 @@ export const TicketService = {
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: TICKET_INCLUDE,
+        include: TICKET_LIST_INCLUDE,
       }),
     ]);
 
