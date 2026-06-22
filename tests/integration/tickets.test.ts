@@ -70,7 +70,10 @@ describe('BE-S4 — Ticket create + list + detail', () => {
       .field('title', 'Mạng wifi không hoạt động')
       .field('description', 'Phòng 502 không có wifi từ 7h sáng')
       .field('severity', 'High')
-      .attach('attachments', Buffer.from('note content'), 'note.txt');
+      .attach('attachments', Buffer.from('%PDF-1.4\nnote content'), {
+        filename: 'note.pdf',
+        contentType: 'application/pdf',
+      });
 
     expect(res.status).toBe(201);
     const t = res.body.data;
@@ -83,7 +86,7 @@ describe('BE-S4 — Ticket create + list + detail', () => {
     });
     expect(t.code).toMatch(/^HD-\d{4}-\d{6}$/);
     expect(t.attachments).toHaveLength(1);
-    expect(t.attachments[0]).toMatchObject({ filename: 'note.txt', kind: 'Document' });
+    expect(t.attachments[0]).toMatchObject({ filename: 'note.pdf', kind: 'Document' });
 
     const events = await prisma.ticketEvent.findMany({ where: { ticketId: t.id } });
     expect(events).toHaveLength(1);

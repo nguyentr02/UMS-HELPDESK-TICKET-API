@@ -113,7 +113,11 @@ describe('BE-S6 — Comments + attachments', () => {
 
   it('M31-BE-S6-E2: comment with an image attachment → Attachment.commentId set; GET /attachments/{id} returns the file', async () => {
     const t = await seedTicket({});
-    const png = Buffer.from('fake-png-bytes');
+    // Real PNG magic bytes so the upload content-sniffer accepts it.
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('fake-png-bytes'),
+    ]);
 
     const post = await request(app)
       .post(`/tickets/${t.id}/comments`)

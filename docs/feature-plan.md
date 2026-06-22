@@ -383,17 +383,18 @@ What's actually in place (verified in code), so future work knows the baseline:
 
 **Input / transport / data**
 - **Zod** validation on every mutation; **Prisma parameterised** queries (no SQLi); React auto-escaping (no `dangerouslySetInnerHTML`).
-- Uploads: **MIME allowlist, ≤10 MB, ≤5 files**, stored outside webroot, streamed download with authz.
+- Uploads (multer path): **MIME allowlist + magic-byte content sniffing** (rejects a spoofed Content-Type — `lib/uploads/validate.ts`), **≤10 MB, ≤5 files**, a pluggable **virus-scan hook** (no-op default, `setVirusScanner`), stored outside webroot, streamed download with authz. The Vercel-Blob upload-url broker is **auth-gated** (session cookie). *Limitation:* files uploaded straight to Blob bypass the BE so aren't content-sniffed (size cap + authed broker only).
 - **Helmet** (incl. CSP); **CORS** scoped with credentials; HTTPS (Vercel/Render).
 - **Realtime:** short-lived (60 s) handshake JWT signed with a **dedicated `REALTIME_JWT_SECRET`** (least privilege); `/emit` guarded by a shared secret; broadcast events carry **only "changed" signals, no data**; per-user payloads go to that user's room.
 - Audit: `TicketEvent` table; pino logs with `requestId`; **no passwords/secrets/PII in logs**.
 
-**Known gaps / deferred** (not yet done — tracked):
-- DeptStaff **scoping bug** to fully resolve + an IDOR sweep across all endpoints.
+**Known gaps / deferred** (tracked):
 - **Rotate the Google Client Secret** after the demo.
 - **Dependency audit** (`npm audit` flagged some highs/criticals).
-- File **content-type sniffing** (magic bytes) + **virus scan** (hook only).
+- Wire a **real** virus scanner into the hook (currently no-op); content-sniff the Blob-direct upload path (BE never sees those bytes).
 - Client-side **localStorage** holds some lists (e.g. admin user directory) ~24 h (wiped on logout); no MFA; rate limits only on a few endpoints.
+
+*(Done since: IDOR sweep — no gaps found, all id-addressed endpoints scoped, locked by `scoping.test.ts`; DeptStaff scoping fixed via per-request DB re-validation; upload allowlist + magic-byte sniffing + virus-scan hook; upload-url broker auth-gated.)*
 
 ## J. Risks & mitigations (technical)
 

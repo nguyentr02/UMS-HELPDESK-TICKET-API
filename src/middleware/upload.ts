@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import multer from 'multer';
 import { AppError } from '../lib/errors.js';
+import { validateUploadedFile } from '../lib/upload-validation.js';
 
 const FIELD = 'attachments';
 // Project rule: max 5 files per upload, ≤10 MB each (M31 Helpdesk).
@@ -28,6 +29,22 @@ export const uploadAttachments: RequestHandler = (req, res, next) => {
       }
       return next(new AppError(400, 'upload_error', err.message));
     }
-    next(err);
+    if (err) return next(err);
+
+    // Content validation (allowlist + magic-byte sniff + virus-scan hook) runs
+    // after multer has the buffers in memory, before the handler stores them.
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    Promise.all(
+      files.map((f) =>
+        validateUploadedFile({
+          originalname: f.originalname,
+          mimetype: f.mimetype,
+          buffer: f.buffer,
+          size: f.size,
+        }),
+      ),
+    )
+      .then(() => next())
+      .catch((e: unknown) => next(e));
   });
 };
