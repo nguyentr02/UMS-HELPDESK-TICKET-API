@@ -83,13 +83,12 @@ export function toCategoryDTO(c: Category | null): CategoryDTO | null {
 }
 
 export function toAttachmentDTO(att: Attachment & { uploader: User }): AttachmentDTO {
-  // storageKey is the Blob URL for new uploads (https://…blob.vercel-storage.com/…)
-  // and an opaque key (e.g. mem:cuid) for memory/local-disk legacy storage.
-  // Only the URL form is safe to expose to the FE as a direct link.
-  const url =
-    att.storageKey.startsWith('https://') || att.storageKey.startsWith('http://')
-      ? att.storageKey
-      : null;
+  // We deliberately DON'T expose the raw storageKey, even when it's a Blob URL.
+  // Vercel Blobs are `access: 'public'`, so handing that URL to the client would
+  // let anyone with the link fetch the file — bypassing the per-ticket
+  // authorization on the /attachments/:id proxy (assertCanViewTicket + forced
+  // `Content-Disposition: attachment`). All downloads go through that proxy.
+  const url = null;
   return {
     id: att.id,
     ticketId: att.ticketId,
