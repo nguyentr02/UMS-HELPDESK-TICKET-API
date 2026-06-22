@@ -109,16 +109,30 @@ export type TicketWithRelations = Ticket & {
   helpdeskAssignee: User | null;
   routedDepartment: Department | null;
   category: Category | null;
-  attachments: Array<Attachment & { uploader: User }>;
+  // Optional so list queries can use TICKET_LIST_INCLUDE (no attachments) and
+  // still flow through toTicketDTO — list rows don't render attachments.
+  attachments?: Array<Attachment & { uploader: User }>;
 };
 
-/** Standard `include` payload for any Prisma query that returns a Ticket via `toTicketDTO`. */
+/** Full `include` for the ticket DETAIL view (everything `toTicketDTO` can emit). */
 export const TICKET_INCLUDE = {
   requester: true,
   helpdeskAssignee: true,
   routedDepartment: true,
   category: true,
   attachments: { include: { uploader: true } },
+} as const;
+
+/**
+ * Lighter `include` for LIST/queue endpoints: omits `attachments` (and its
+ * per-row uploader join) since no list table shows them. `toTicketDTO` returns
+ * `attachments: []` for these. Use TICKET_INCLUDE for the detail view.
+ */
+export const TICKET_LIST_INCLUDE = {
+  requester: true,
+  helpdeskAssignee: true,
+  routedDepartment: true,
+  category: true,
 } as const;
 
 function backlogAgeDays(t: Pick<Ticket, 'createdAt' | 'status' | 'closedAt'>): number {
@@ -139,7 +153,7 @@ export function toTicketDTO(t: TicketWithRelations) {
     requester: toUserRef(t.requester),
     helpdeskAssignee: toUserRefOrNull(t.helpdeskAssignee),
     routedDepartment: toDepartmentDTOOrNull(t.routedDepartment),
-    attachments: t.attachments.map(toAttachmentDTO),
+    attachments: (t.attachments ?? []).map(toAttachmentDTO),
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
     closedAt: t.closedAt,
