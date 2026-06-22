@@ -4,6 +4,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { nextTicketCode } from '../lib/ids.js';
 import { assertCanViewTicket, ticketWhereForCaller } from '../lib/scoping.js';
 import { getStorage, kindFromMime, type IncomingFile } from '../lib/storage/index.js';
+import { validateBlobAttachment } from '../lib/upload-validation.js';
 import type { SessionUser } from '../middleware/auth.js';
 import { assertCanPerform, TRANSITIONS } from '../lib/transitions.js';
 import { safePublishClosed, safePublishCreated } from '../lib/events/publisher.js';
@@ -114,6 +115,9 @@ export const TicketService = {
         stored: await getStorage().upload(f),
       })),
     );
+    // Direct-upload (Blob) files bypass multer, so re-validate them here
+    // (allowlist + magic-byte sniff + real size) before they're persisted.
+    await Promise.all((input.attachments ?? []).map((a) => validateBlobAttachment(a)));
 
     // Requesters no longer pick a severity — Lead/Agent triages later.
     // Default to Medium so the row is valid; PATCH /:id/severity overrides.
@@ -656,6 +660,8 @@ export const TicketService = {
     const uploaded = await Promise.all(
       (files ?? []).map(async (f) => ({ file: f, stored: await getStorage().upload(f) })),
     );
+    // Direct-upload (Blob) files bypass multer — re-validate before persisting.
+    await Promise.all((attachmentsMeta ?? []).map((a) => validateBlobAttachment(a)));
 
     return prisma
       .$transaction(async (tx) => {
@@ -1119,6 +1125,8 @@ export const TicketService = {
         stored: await getStorage().upload(f),
       })),
     );
+    // Direct-upload (Blob) files bypass multer — re-validate before persisting.
+    await Promise.all((attachmentsMeta ?? []).map((a) => validateBlobAttachment(a)));
 
     return prisma.$transaction(async (tx) => {
       const comment = await tx.ticketComment.create({

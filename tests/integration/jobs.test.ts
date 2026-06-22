@@ -44,4 +44,32 @@ describe('BE-S8 — Jobs route (bearer guard)', () => {
     });
     expect(res.body.requestId).toBeTruthy();
   });
+
+  it('POST /jobs/blob-sweep without an Authorization header → 403', async () => {
+    const res = await request(app).post('/jobs/blob-sweep').send({});
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('forbidden');
+  });
+
+  it('POST /jobs/blob-sweep with a wrong bearer secret → 403', async () => {
+    const res = await request(app)
+      .post('/jobs/blob-sweep')
+      .set('Authorization', 'Bearer nope')
+      .send({});
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /jobs/blob-sweep with the correct secret → 200 (skips when not the blob driver)', async () => {
+    const res = await request(app)
+      .post('/jobs/blob-sweep')
+      .set('Authorization', `Bearer ${env.JOB_SECRET}`)
+      .send({});
+    expect(res.status).toBe(200);
+    // Test env uses the memory/local storage driver, so the sweep no-ops.
+    expect(res.body.data).toMatchObject({
+      skipped: 'not_blob_driver',
+      scanned: 0,
+      orphansDeleted: 0,
+    });
+  });
 });

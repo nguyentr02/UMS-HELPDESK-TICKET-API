@@ -107,3 +107,56 @@ export async function validateUploadedFile(file: IncomingFileLike): Promise<void
     );
   }
 }
+
+const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — same cap as the multer path
+
+export interface BlobAttachmentMeta {
+  url: string;
+  filename: string;
+  mimeType: string;
+}
+
+/**
+ * Validate a direct-to-Blob upload the BE never buffered. The bytes live in
+ * Blob, so we range-fetch just the header (16 bytes) and run the same allowlist
+ * + magic-byte checks as the multer path, and verify the REAL size from
+ * Content-Range/Length (the client-declared `sizeBytes` is untrusted). Full
+ * virus scanning needs the whole file; the hook is a no-op by default, so we
+ * skip it here — the content sniff is the meaningful gain.
+ *
+ * Throws `AppError` on any failure.
+ */
+export async function validateBlobAttachment(a: BlobAttachmentMeta): Promise<void> {
+  const expected = ALLOWED[a.mimeType];
+  if (!expected) {
+    throw new AppError(415, 'unsupported_file_type', `Loại tệp "${a.mimeType}" không được hỗ trợ`);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(a.url, { headers: { Range: 'bytes=0-15' } });
+  } catch {
+    throw new AppError(400, 'attachment_unreadable', `Không đọc được tệp "${a.filename}"`);
+  }
+  if (!res.ok && res.status !== 206) {
+    throw new AppError(400, 'attachment_unreadable', `Không đọc được tệp "${a.filename}"`);
+  }
+
+  // "bytes 0-15/12345" → 12345 is the true total size.
+  const range = res.headers.get('content-range');
+  const total = range
+    ? Number(range.split('/')[1])
+    : Number(res.headers.get('content-length') ?? 0);
+  if (Number.isFinite(total) && total > MAX_BYTES) {
+    throw new AppError(413, 'payload_too_large', `Tệp "${a.filename}" vượt quá giới hạn 10MB`);
+  }
+
+  const header = Buffer.from(await res.arrayBuffer());
+  if (sniffFamily(header) !== expected) {
+    throw new AppError(
+      415,
+      'file_content_mismatch',
+      `Nội dung tệp "${a.filename}" không khớp loại đã khai báo`,
+    );
+  }
+}

@@ -16,6 +16,10 @@
     {
       "path": "/jobs/daily-reminder",
       "schedule": "0 2 * * 1-5"
+    },
+    {
+      "path": "/jobs/blob-sweep",
+      "schedule": "0 3 * * *"
     }
   ]
 }
