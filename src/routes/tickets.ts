@@ -355,10 +355,17 @@ ticketsRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const file = await AttachmentService.download(req.params.id, req.user!);
+    // Browser-viewable types (raster images + PDF) are served `inline` so the FE
+    // can preview them in a lightbox / new-tab native viewer without downloading.
+    // Everything else (Office docs) stays `attachment` → forced download. This is
+    // safe: the allowlist excludes the dangerous inline types (HTML/SVG), images
+    // can't execute, and PDFs render in the browser's sandboxed viewer — not our
+    // DOM. `nosniff` (set globally by helmet) stops MIME-confusion.
+    const inlineViewable = file.mimeType.startsWith('image/') || file.mimeType === 'application/pdf';
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(file.filename)}"`,
+      `${inlineViewable ? 'inline' : 'attachment'}; filename="${encodeURIComponent(file.filename)}"`,
     );
     res.setHeader('Content-Length', String(file.sizeBytes));
     file.stream.pipe(res);
