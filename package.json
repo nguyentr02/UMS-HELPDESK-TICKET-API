@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "M31 Helpdesk/Ticket — Back-end (Node 20, TypeScript, Express, Prisma)",
+  "description": "M31 Helpdesk/Ticket — Back-end (Node 22, TypeScript, Express, Prisma)",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
