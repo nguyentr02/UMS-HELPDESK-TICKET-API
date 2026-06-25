@@ -5,7 +5,7 @@
 | Module | **M31 — Helpdesk / Ticket** — Back-end |
 | Sources | `feat-helpdesk-api/docs/brief.md`, `feat-helpdesk-ticket/docs/feature-plan.md` (prior round — API §5, data model §4) |
 | Step | Process Step 3 — Feature Plan (`/sc:design --type api --persona-architect`) |
-| Stack | Node 20 · Express 4 · Prisma 5 (Postgres) · Zod · passport (SSO) · multer · bullmq (Redis) · pino · vitest |
+| Stack | Node 22 · Express 4 · Prisma 5 (Postgres) · Zod · `google-auth-library` (Google OAuth) · multer + Vercel Blob · bullmq (Redis) · pino · vitest |
 | Reference repo | `feat-admission-plan/` — mirrored layout/tooling |
 | Output of this step | **This document only** — no code yet (that is Step 6 `/sc:implement`) |
 
@@ -15,8 +15,8 @@
 
 1. **Single Express app**, not a microservices split. The cron worker, API, and event publisher all run inside one process (bullmq worker as a sibling entry point under the same package). Matches `feat-admission-plan`.
 2. **Folder structure mirrors `feat-admission-plan`**: `src/{routes,services,middleware,lib,config,types}` + `prisma/` + `tests/{unit,service,integration}` + `docker-compose.yml`.
-3. **TypeScript** for the BE (Node 20, ES modules) — deviation from `feat-admission-plan` (which is JS-with-JSDoc), per direction. Dev runs via `tsx --watch`; prod build via `tsc → dist/` and `node dist/index.js`. Zod `z.infer` for derived request/DTO types; Prisma's generated client types flow end-to-end. `tsconfig.json` set to `"module": "esnext"`, `"moduleResolution": "bundler"`, `"strict": true`.
-4. **Demo auth via email + password** → signed JWT in an `HttpOnly Secure SameSite=None` cookie (8 h lifetime, no refresh). Login (`POST /auth/login { email, password }`) bcrypt-checks against `User.passwordHash` seeded by `prisma/seed.ts` (per-persona passwords, one per mock identity). Logout clears the cookie; `GET /auth/me` lets the FE rehydrate on reload. The passport SSO strategy is the production swap-in — the rest of the app keeps reading `req.user` only, so the cutover is one middleware change.
+3. **TypeScript** for the BE (Node 22, ES modules) — deviation from `feat-admission-plan` (which is JS-with-JSDoc), per direction. Dev runs via `tsx --watch`; prod build via `tsc → dist/` and `node dist/index.js`. Zod `z.infer` for derived request/DTO types; Prisma's generated client types flow end-to-end. `tsconfig.json` set to `"module": "esnext"`, `"moduleResolution": "bundler"`, `"strict": true`.
+4. **Demo auth via email + password** → signed JWT in an `HttpOnly Secure SameSite=None` cookie (8 h lifetime, no refresh). Login (`POST /auth/login { email, password }`) bcrypt-checks against `User.passwordHash` seeded by `prisma/seed.ts` (per-persona passwords, one per mock identity). Logout clears the cookie; `GET /auth/me` lets the FE rehydrate on reload. **Google OAuth** (Authorization Code Flow via `google-auth-library`) ships alongside the password login and issues the same cookie (`GET /auth/google` + `/auth/google/callback`); the rest of the app keeps reading `req.user` only.
 5. **EventPublisher**: a logger-backed implementation in dev; a queued (bullmq) outbound channel ready for ESB wiring later.
 6. **Attachment storage adapter**: local disk in dev (`./uploads`); the `StorageAdapter` interface lets an object-storage adapter drop in later (§10 open item).
 7. **Hosting target: Vercel** (serverless). Constrains a few of the defaults above:
@@ -43,7 +43,6 @@ flowchart TB
     mw["Middleware: requestId → auth → rbac → zod → error"]
     svcTicket["TicketService"]
     svcCat["CategoryService"]
-    svcRoute["RoutingService"]
     svcAssign["AssignmentService"]
     svcNotify["NotificationService"]
     svcAttach["AttachmentService"]
@@ -66,7 +65,7 @@ flowchart TB
 
   feUI & portalSV & portalGV --> routes
   routes --> mw --> svcTicket
-  svcTicket --> svcCat & svcRoute & svcAssign & svcNotify & svcAttach
+  svcTicket --> svcCat & svcAssign & svcNotify & svcAttach
   svcTicket --> db
   svcNotify --> db
   svcAttach --> store
@@ -91,9 +90,9 @@ feat-helpdesk-api/
     worker.ts                    # bullmq worker entry (reminder + event publisher)
     app.ts                       # Express app factory (exported for tests via supertest)
     config/env.ts                # zod-validated env
-    middleware/                  # requestId, auth (mock/passport), rbac, zodValidate, error, multer
-    routes/                      # tickets, categories, routing-rules, notifications, analytics, healthz
-    services/                    # TicketService, CategoryService, RoutingService, AssignmentService,
+    middleware/                  # requestId, auth (cookie-JWT + mock fallback), rbac, zodValidate, error, multer
+    routes/                      # tickets, categories, notifications, analytics, healthz
+    services/                    # TicketService, CategoryService, AssignmentService,
                                  # NotificationService, AttachmentService, AnalyticsService
     lib/                         # logger.ts (pino), prisma.ts, ids.ts (cuid), envelope.ts, errors.ts,
                                  # storage/local.ts + storage/index.ts (adapter), events/publisher.ts
@@ -118,9 +117,16 @@ stateDiagram-v2
   [*] --> Pending : create (SV/GV/NV)
   Pending --> Assigned : forward to dept (Helpdesk)
   Assigned --> InProgress : start progress (Staff/Helpdesk)
-  Assigned --> Redirected : redirect (Helpdesk)
-  InProgress --> Redirected : redirect (Helpdesk)
-  Redirected --> Assigned : re-forward to new dept (Helpdesk)
+  Assigned --> Assigned : redirect to new dept (Helpdesk) — logs Redirected event
+  InProgress --> Assigned : redirect to new dept (Helpdesk) — logs Redirected event
+  Assigned --> RedirectRequested : request-redirect (DeptStaff)
+  InProgress --> RedirectRequested : request-redirect (DeptStaff)
+  RedirectRequested --> Assigned : approve-redirect to new dept (Helpdesk)
+  RedirectRequested --> Assigned : refuse-redirect (Helpdesk) — restores prior status
+  RedirectRequested --> InProgress : refuse-redirect (Helpdesk) — restores prior status
+  InProgress --> CloseRequested : request-close (DeptStaff)
+  CloseRequested --> InProgress : refuse-close (Helpdesk)
+  CloseRequested --> Closed : approve-close (Helpdesk)
   Pending --> Closed : close (Helpdesk)
   Assigned --> Closed : close (Helpdesk)
   InProgress --> Closed : close (Helpdesk)
@@ -128,6 +134,10 @@ stateDiagram-v2
   note right of Pending
     Lead assigns / reassigns Agent here
     (sets owner; no status change)
+  end note
+  note right of Assigned
+    redirect = same status (Assigned) under a
+    new routedDepartmentId; records a Redirected event
   end note
   note right of Closed
     Terminal — no reopen (v1)
@@ -142,7 +152,7 @@ stateDiagram-v2
 | `assignAgent` | `Pending` | `Pending` *(attribute change only)* | `HelpdeskLead` | sets `helpdeskAssigneeId`; `TicketEvent[AgentAssigned]`; notify Agent (`TICKET_ASSIGNED`). |
 | `forward` | `Pending` | `Assigned` | Helpdesk | sets `routedDepartmentId`; `TicketEvent[Forwarded]`; notify dept staff (`TICKET_FORWARDED`). |
 | `startProgress` | `Assigned` | `InProgress` | `DeptStaff` (own dept) / Helpdesk | `TicketEvent[Started]`; notify requester (`STATUS_CHANGED`). |
-| `redirect` | `Assigned` \| `InProgress` | `Redirected → Assigned` *(within same tx)* | Helpdesk | sets new `routedDepartmentId`; `TicketEvent[Redirected]` w/ from→to; notify new dept staff. |
+| `redirect` | `Assigned` \| `InProgress` | `Assigned` | Helpdesk | sets new `routedDepartmentId` (status returns to `Assigned`, keeps assignee); `TicketEvent[Redirected]` w/ from→to dept; notify new dept staff. |
 | `overrideSeverity` | any non-Closed | unchanged | Helpdesk | updates `severity`; `TicketEvent[SeverityChanged]`. |
 | `comment` | any non-Closed | unchanged | participants / Helpdesk | inserts `TicketComment` + `TicketEvent[Commented]`. |
 | `close` | `Pending` \| `Assigned` \| `InProgress` | `Closed` | Helpdesk Lead **or** assigned Agent | sets `closedAt`; `TicketEvent[Closed]`; notify requester (`TICKET_CLOSED`); `EventPublisher.ticketClosed`. |
@@ -194,7 +204,7 @@ sequenceDiagram
 
 ## E. Data model (Prisma / Postgres)
 
-**Conventions (match `feat-admission-plan`):** Prisma `provider = "postgresql"`; IDs `String @id @default(cuid())`; timestamps `createdAt @default(now())` + `updatedAt @updatedAt`; models PascalCase mapped via `@@map` to snake_case plural tables (`tickets`, `ticket_comments`, `attachments`, `categories`, `routing_rules`, `ticket_events`, `notifications`, `users`, `departments`). **Enum values use PascalCase** matching ISO labels (`Severity {Critical|High|Medium|Low}`, `TicketStatus {Pending|Assigned|InProgress|Redirected|Closed}`, `Role {SV|GV|NV|HelpdeskLead|HelpdeskAgent|DeptStaff|Admin}`, `NotificationType {TicketClosed|DailyReminder|TicketAssigned|TicketForwarded|StatusChanged}`, `EventType {Created|AgentAssigned|Forwarded|Started|Redirected|SeverityChanged|Commented|Closed}`).
+**Conventions (match `feat-admission-plan`):** Prisma `provider = "postgresql"`; IDs `String @id @default(cuid())`; timestamps `createdAt @default(now())` + `updatedAt @updatedAt`; models PascalCase mapped via `@@map` to snake_case plural tables (`tickets`, `ticket_comments`, `attachments`, `categories`, `ticket_events`, `notifications`, `users`, `departments`). **Enum values use PascalCase** matching ISO labels (`Severity {Critical|High|Medium|Low}`, `TicketStatus {Pending|Assigned|InProgress|CloseRequested|RedirectRequested|Closed}`, `Role {SV|GV|NV|HelpdeskLead|HelpdeskAgent|DeptStaff|Admin}`, `NotificationType {TicketClosed|DailyReminder|TicketAssigned|TicketForwarded|StatusChanged|TicketCreated|TicketCommented|CloseRequested|CloseRefused|RedirectRequested|RedirectRefused}`, `EventType {Created|AgentAssigned|Forwarded|Redirected|Started|SeverityChanged|Commented|CloseRequested|CloseRefused|RedirectRequested|RedirectRefused|Closed}`).
 
 ```mermaid
 erDiagram
@@ -206,9 +216,6 @@ erDiagram
   TICKET     ||--o{ ATTACHMENT    : "has"
   TICKET     ||--o{ TICKETEVENT   : "audit"
   USER       ||--o{ NOTIFICATION  : "to"
-  CATEGORY   |o--o{ CATEGORY      : "parent"
-  CATEGORY   ||--o{ ROUTINGRULE   : "in"
-  DEPARTMENT ||--o{ ROUTINGRULE   : "target"
 
   USER {
     string id PK
@@ -225,14 +232,7 @@ erDiagram
   CATEGORY {
     string  id PK
     string  name
-    string  parentId FK
     boolean isActive
-  }
-  ROUTINGRULE {
-    string  id PK
-    string  categoryId FK
-    string  departmentId FK
-    boolean isDefault
   }
   TICKET {
     string       id PK
@@ -242,6 +242,8 @@ erDiagram
     string       requesterId FK
     string       categoryId FK
     string       helpdeskAssigneeId FK
+    string       closeRequestedById
+    string       redirectRequestedById
     string       routedDepartmentId FK
     datetime     createdAt
     datetime     closedAt
@@ -277,8 +279,8 @@ erDiagram
   }
 ```
 
-**Indexes:** `tickets(status)`, `tickets(helpdesk_assignee_id, status)`, `tickets(routed_department_id, status)`, `tickets(requester_id)`, `tickets(created_at)`, `categories(parent_id)`, `routing_rules(category_id)`, `notifications(user_id, read_at)`, `ticket_events(ticket_id, created_at)`.
-**Migration:** `0001_create_m31_helpdesk` (+ `.down.sql`) — creates all M31 tables; seed script for `departments` + default `categories` + their `routing_rules`.
+**Indexes:** `tickets(status)`, `tickets(helpdesk_assignee_id, status)`, `tickets(routed_department_id, status)`, `tickets(requester_id)`, `tickets(created_at)`, `notifications(user_id, read_at)`, `ticket_events(ticket_id, created_at)`.
+**Migration:** `0001_create_m31_helpdesk` (+ `.down.sql`) — creates all M31 tables; seed script for `departments` + default `categories`. Department routing is a manual Agent/Lead pick per ticket — there is no routing-rule table/entity.
 
 ## F. API contract (REST, base `/api/v1`)
 
@@ -287,10 +289,10 @@ erDiagram
 - **Envelope:** every response is `{ data, error: null, requestId }` (success) or `{ data: null, error: { code, message, fields? }, requestId }` (failure).
 - **Errors:** `400` Zod validation; `401` no/invalid SSO; `403` RBAC/ownership; `404`; `409` illegal state-machine transition (stale current status); `413` attachment too large; `422` Zod schema or business validation; `5xx` reserved for genuine server errors.
 - **Server-derived scoping (never trust a client param):** `SV/GV/NV` → only own `requesterId`; `DeptStaff` → only `routedDepartmentId = caller.departmentId`; `HelpdeskAgent` → only `helpdeskAssigneeId = caller.id` on personal queues, all tickets on shared queues; `HelpdeskLead` & `Admin` → all.
-- **`status` query** on `GET /tickets`: accepts CSV or repeated values from `{Pending,Assigned,InProgress,Redirected,Closed}`, **or** the convenience value `open` meaning every non-`Closed` state.
+- **`status` query** on `GET /tickets`: accepts CSV or repeated values from `{Pending,Assigned,InProgress,CloseRequested,RedirectRequested,Closed}`, **or** the convenience value `open` meaning every non-`Closed` state (i.e. `{Pending,Assigned,InProgress,CloseRequested,RedirectRequested}`).
 - **Mutations** use Zod-validated request bodies; FormData on `POST /tickets` and `POST /:id/comments` (multer).
 
-The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,request-close,approve-close,refuse-close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz` — lives in the canonical FP §5.
+The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:id`, `POST /:id/{assign,forward,progress,close,request-close,approve-close,refuse-close,comments}`, `PATCH /:id/{severity,category}`, `GET /:id/{history,comments}`, `GET /attachments/:id`, `POST /attachments/upload-url` (Vercel Blob direct-upload token broker — auth-gated, the primary upload path), `GET/POST/PATCH/DELETE /categories[/:id]`, `GET/POST /notifications[/:id/read]`, `DELETE /notifications`, `GET /analytics/summary`, `GET /healthz`, the cron job endpoints `POST /jobs/daily-reminder` + `POST /jobs/blob-sweep` (both `JOB_SECRET`-guarded), and the Google-OAuth pair `GET /auth/google` + `GET /auth/google/callback` — lives in the canonical FP §5.
 
 **Close-request workflow (BE-S17, 2026-06-11):** `POST /tickets/:id/request-close` (DeptStaff of routed dept — multipart proof comment + optional images → `CloseRequested`), `POST /tickets/:id/approve-close` (Lead/assigned-Agent → `Closed`), `POST /tickets/:id/refuse-close` (Lead/assigned-Agent, reason required → `InProgress`). Adds internal status `CloseRequested` (external `Processing`); event types `CloseRequested`/`CloseRefused`; notification types `CloseRequested`/`CloseRefused`.
 
@@ -323,13 +325,13 @@ The full per-endpoint table — `POST /tickets`, `GET /tickets`, `GET /tickets/:
 
 ### Identity contract
 
-Demo mode: `auth` middleware reads the `m31_session` cookie, verifies the JWT against `JWT_SECRET`, hydrates `req.user` from the payload. `/auth/login` is the only endpoint that runs **before** this middleware (it issues the cookie); `/healthz` and `/docs/*` remain public. Production mode: passport SSO strategy resolves the SSO token to the same `req.user` shape — the rest of the app is unchanged.
+`auth` middleware reads the `ums_session` cookie, verifies the JWT against `JWT_SECRET`, and hydrates `req.user`. `requireAuth` then **re-validates a cookie session against the DB on every request** (deactivated user rejected immediately; role/dept refreshed from the DB source of truth). `/auth/login`, `/auth/google`, and `/auth/google/callback` run **before** the auth gate (they issue the cookie); `/healthz` and `/docs/*` remain public. Both the password login and **Google OAuth** (`google-auth-library`) resolve to the same `req.user` shape — the rest of the app is unchanged.
 
 ## G. Notifications & the daily 09:00 reminder
 
 - **In-app only, persisted as `Notification` rows.** Endpoints: `GET /notifications` (caller's own, unread-first, paginated); `POST /notifications/:id/read`.
 - **Triggered by the lifecycle**: `TICKET_CLOSED` to requester (close handler), `TICKET_ASSIGNED` to agent (assign handler), `TICKET_FORWARDED` to dept staff (forward handler), optional `STATUS_CHANGED` to requester (progress handler). All inserted in the same transaction as the status change.
-- **Daily reminder** — bullmq repeatable job, cron `0 9 * * 1-5`, TZ `Asia/Ho_Chi_Minh`, public-holiday skip via `lib/calendar.js` (config file of dates). For every Helpdesk agent with ≥1 backlog ticket (`status IN {Pending, Assigned, Redirected}`, `helpdeskAssigneeId = agent.id`), insert one `DAILY_REMINDER` notification with `payload = { tickets: [{id, code, severity, ageDays}] }`. **Idempotent** via dedupe key `reminder:{agentId}:{YYYY-MM-DD}` stored in Redis (24h TTL).
+- **Daily reminder** — bullmq repeatable job, cron `0 9 * * 1-5`, TZ `Asia/Ho_Chi_Minh`, public-holiday skip via `lib/calendar.js` (config file of dates). For every Helpdesk agent with ≥1 backlog ticket (`status IN {Pending, Assigned}`, `helpdeskAssigneeId = agent.id`), insert one `DAILY_REMINDER` notification with `payload = { tickets: [{id, code, severity, ageDays}] }`. **Idempotent** via dedupe key `reminder:{agentId}:{YYYY-MM-DD}` stored in Redis (24h TTL).
 - **Runtime split**: local dev runs `worker.ts` as a long-running `tsx --watch` process consuming the bullmq queue. On **Vercel**, `vercel.json` `crons:` hits `POST /jobs/daily-reminder` (shared-secret-guarded) on the same `0 9 * * 1-5` schedule — the handler in `jobs/daily-reminder.ts` is the single source of truth and is invoked by both runtimes (long-running consumer locally, scheduled serverless function in prod).
 
 ### G.1 Realtime push (Socket.IO) for the notification bell
@@ -350,13 +352,13 @@ Vercel serverless functions can't hold a WebSocket open, so live delivery runs t
 
 **Handshake auth:** the FE fetches `GET /auth/realtime-token` (rides the session cookie via the proxy), then connects with that 60 s JWT. The realtime server verifies it with the **dedicated `REALTIME_JWT_SECRET`** (HS256, reads `sub`; NOT the session `JWT_SECRET` — least privilege) and joins the socket to room `user:<id>`.
 
-**FE freshness:** notifications are **socket-driven (no background poll)** — mount fetch (history) + `notification:new` push + reconnect-invalidate + optimistic mutations. If the socket is fully down (sleeping Render), new items surface on the next reconnect/mount, so keep the realtime server warm. A pure comment doesn't write the `Ticket` row, so it fires `notification:new` (detail updates) but not `tickets:changed` (queue rows unchanged).
+**FE freshness:** notifications are **socket-driven** when realtime is configured — mount fetch (history) + `notification:new` push + reconnect-invalidate + optimistic mutations. When the realtime trio (`REALTIME_EMIT_URL`/`REALTIME_EMIT_SECRET`/`REALTIME_JWT_SECRET`) is unset or the socket is fully down (sleeping Render), the FE falls back to a **30 s poll** so new items still surface; otherwise they arrive on the next reconnect/mount, so keep the realtime server warm. A pure comment doesn't write the `Ticket` row, so it fires `notification:new` (detail updates) but not `tickets:changed` (queue rows unchanged).
 
 **Env:** `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET` (= realtime server's `EMIT_SECRET`), `REALTIME_JWT_SECRET` (= realtime server's `REALTIME_JWT_SECRET`).
 
 ## H. Dependencies (Node, ES modules)
 
-- **Runtime:** `express`, `@prisma/client`, `prisma` (dev), `zod`, `passport` + `passport-google-oauth20` (production SSO strategy), `multer`, `bullmq` + `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty` (dev), `cors`, `cuid`/`@paralleldrive/cuid2`, `date-fns` + `date-fns-tz` (TZ math for the holiday calendar).
+- **Runtime:** `express`, `@prisma/client`, `prisma` (dev), `zod`, `google-auth-library` (Google OAuth — `passport`/`passport-google-oauth20` remain in `package.json` but are **unused**), `multer` + `@vercel/blob` + `@vercel/functions` (Blob direct upload + `waitUntil`), `swagger-ui-express`, `bullmq` + `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty` (dev), `cors`, `cuid`/`@paralleldrive/cuid2`, `date-fns` + `date-fns-tz` (TZ math for the holiday calendar).
 - **Dev/test (TypeScript toolchain):** `typescript`, `tsx` (dev/watch entry), `@types/node`, `@types/express`, `@types/multer`, `@types/supertest`, `vitest`, `supertest`, `@vitest/coverage-v8`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`. Test DB: ephemeral Postgres via the same `docker-compose.yml`; a `tests/helpers/test-db.ts` truncates between tests.
 
 ## I. Non-functional requirements
@@ -383,7 +385,9 @@ What's actually in place (verified in code), so future work knows the baseline:
 
 **Input / transport / data**
 - **Zod** validation on every mutation; **Prisma parameterised** queries (no SQLi); React auto-escaping (no `dangerouslySetInnerHTML`).
-- Uploads (multer path): **MIME allowlist + magic-byte content sniffing** (rejects a spoofed Content-Type — `lib/uploads/validate.ts`), **≤10 MB, ≤5 files**, a pluggable **virus-scan hook** (no-op default, `setVirusScanner`), stored outside webroot, streamed download with authz. The Vercel-Blob upload-url broker is **auth-gated** (session cookie). *Limitation:* files uploaded straight to Blob bypass the BE so aren't content-sniffed (size cap + authed broker only).
+- Uploads (multer path): **MIME allowlist + magic-byte content sniffing** (rejects a spoofed Content-Type — `lib/upload-validation.ts`), **≤10 MB, ≤5 files**, a pluggable **virus-scan hook** (no-op default, `setVirusScanner`), stored outside webroot, streamed download with authz. The Vercel-Blob upload-url broker is **auth-gated** (session cookie). Direct-to-Blob uploads (which the BE never buffers) are validated by `validateBlobAttachment` — a **range-fetch of the header** runs the same allowlist + magic-byte sniff and verifies the **true size** from `Content-Range` (the client-declared size is untrusted); full virus scanning still needs the whole file, so the no-op hook is skipped there.
+- **Orphan-Blob GC** (`jobs/blob-sweep.ts`, its own `0 3 * * *` cron): the direct-upload flow writes to Blob *before* the ticket/comment that references it, so an abandoned upload dangles; the sweep lists the `m31/` prefix and deletes blobs older than the 1 h grace window that no `Attachment` row references (`JOB_SECRET`-guarded; no-op unless `STORAGE_DRIVER=blob` + `BLOB_READ_WRITE_TOKEN` set).
+- **Download disposition:** `GET /attachments/:id` serves raster images + PDFs **`inline`** (sandboxed preview — the allowlist excludes HTML/SVG, `nosniff` set globally by helmet) and everything else as **`attachment`** (forced download).
 - **Helmet** (incl. CSP); **CORS** scoped with credentials; HTTPS (Vercel/Render).
 - **Realtime:** short-lived (60 s) handshake JWT signed with a **dedicated `REALTIME_JWT_SECRET`** (least privilege); `/emit` guarded by a shared secret; broadcast events carry **only "changed" signals, no data**; per-user payloads go to that user's room.
 - Audit: `TicketEvent` table; pino logs with `requestId`; **no passwords/secrets/PII in logs**.
@@ -403,17 +407,17 @@ What's actually in place (verified in code), so future work knows the baseline:
 | Attachment abuse (size/type/malware) | Size/type/count caps, storage quota, scan hook, authz on download. |
 | Reminder missed or duplicated | bullmq repeatable + monitoring; idempotent dedupe key per agent/day. |
 | Data-lake coupling slows ticket ops | Async event publish via queue; failures isolated. |
-| Category delete with live tickets/children | Block delete or soft-delete + reassign guard. |
+| Category delete with live tickets | Block delete or soft-delete + reassign guard (categories are a flat list — no child categories). |
 | IAM role staleness | Resolve role from SSO token each request; periodic user sync. |
 | Long-running Prisma migrations during deploy | Migrations are additive on first ship (greenfield); future schema changes go through a separate review. |
 
 ## K. Open items for review (Tech Lead)
 
-1. **Reminder backlog set:** v1 = `{Pending, Assigned, Redirected}` (excludes `InProgress`, following ISO §8 literally). Include `InProgress` so Helpdesk doesn't forget to chase stale department work?
+1. **Reminder backlog set:** v1 = `{Pending, Assigned}` (excludes `InProgress`, following ISO §8 literally). Include `InProgress` so Helpdesk doesn't forget to chase stale department work?
 2. **Attachment storage adapter for prod:** local-disk works in dev; pick the production adapter (object storage / Drive / on-prem NFS) at Step 5/6.
 3. **Ticket `code` format:** default `HD-YYYY-NNNNNN`. Confirm format + monotonic sequence source (Postgres sequence vs Redis counter vs `cuid2` slug).
 4. **Notification fanout for high-severity tickets:** ISO doesn't require it; future enhancement.
-5. **Soft-delete vs hard-delete for category tree.**
+5. **Soft-delete vs hard-delete for the (flat) category list.**
 
 ## L. Rollback plan
 
@@ -429,8 +433,8 @@ What's actually in place (verified in code), so future work knows the baseline:
 | Story | Title | Core AC focus |
 |---|---|---|
 | BE-S1 | Project scaffold + envelope + healthz + auth/RBAC middleware | mock-SSO middleware sets `req.user`; rbac middleware rejects with `403`; envelope shape covers success + error; `GET /healthz` returns `200`. |
-| BE-S2 | Prisma schema + migration + seed (depts, categories, routing) | `0001_create_m31_helpdesk` migration up/down clean; seed loads departments + default categories + their routing rules. |
-| BE-S3 | Categories + routing-rules CRUD | Admin-only; delete guards (children, live tickets); 422 on duplicate name; routing default per category. |
+| BE-S2 | Prisma schema + migration + seed (depts, categories) | `0001_create_m31_helpdesk` migration up/down clean; seed loads departments + default categories. |
+| BE-S3 | Categories CRUD | Admin-only; delete guard (live tickets); 422 on duplicate name. |
 | BE-S4 | Ticket create + list + detail (read paths) | server-derived scoping per role; status=open + multi-status filter; attachments upload via multer; envelope errors. |
 | BE-S5 | State machine: assign / forward / redirect / progress / close + severity override | one Prisma transaction per transition; `409` on stale current-status; audit `TicketEvent` row inserted; correct role gating. |
 | BE-S6 | Comments + comment attachments + history endpoint | participants/Helpdesk only; `TicketEvent[Commented]`; `GET /:id/history` ordered by `createdAt`. |

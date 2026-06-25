@@ -5,7 +5,7 @@
 | Module | **M31 — Helpdesk / Ticket** — Back-end |
 | Sources | `feat-helpdesk-api/docs/brief.md`, `feat-helpdesk-api/docs/feature-plan.md` (§A decisions, §C state machine, §F API contract, §M Stories) |
 | Step | Process Step 4 — Test design (`/sc:test --design --persona-qa`) |
-| Stack under test | Node 20 · TypeScript · Express · Prisma 5 (Postgres) · Zod · bullmq · pino |
+| Stack under test | Node 22 · TypeScript · Express · Prisma 5 (Postgres) · Zod · bullmq · pino |
 | Min per Story (Bảng 5.1) | ≥1 Happy · ≥2 Edge · ≥2 Error · ≥1 Integration |
 | Coverage gate (Step 7) | ≥ 80% on new BE code |
 
@@ -38,34 +38,38 @@
 ## 3. Test cases by Story
 
 ### BE-S1 — Project scaffold + envelope + healthz + auth/RBAC middleware
+
+> The `X-Mock-*` header path below is a **dev/test-only** convenience: in `jwt` mode it's honored **only when `NODE_ENV !== 'production'`** (see `authMiddleware`). The real production session is the **`ums_session` cookie** (HS256 JWT), and a cookie session is **re-validated against the DB on every request** by `requireAuth` (deactivated user rejected immediately; role/dept refreshed from the DB). Cases E2/X1 exercise the mock fallback; H2/X3 exercise the cookie + DB re-validation.
+
 - **H1** — GIVEN the app is started, WHEN `GET /healthz`, THEN `200` with `{ data: { status: 'ok' }, error: null, requestId }`.
+- **H2** — GIVEN a valid `ums_session` cookie for an **active** user whose role/dept were changed in the DB after the token was issued, WHEN a protected route is called, THEN `req.user` reflects the **DB** role/dept (not the stale JWT) and the handler runs.
 - **E1** — GIVEN `GET /healthz` with no SSO headers, THEN still `200` (healthz is public).
-- **E2** — GIVEN a protected route, WHEN called with all mock headers, THEN `req.user = { id, role, departmentId }` and the handler runs.
-- **X1** — GIVEN `GET /tickets` without `X-Mock-User-Id`, THEN `401` with envelope `error.code='unauthenticated'`.
+- **E2** — GIVEN a protected route in a non-production env, WHEN called with all mock headers, THEN `req.user = { id, role, departmentId }` and the handler runs.
+- **X1** — GIVEN `GET /tickets` without `X-Mock-User-Id` (and no cookie), THEN `401` with envelope `error.code='unauthenticated'`.
 - **X2** — GIVEN `POST /admin/categories` as role `SV`, THEN `403` with envelope `error.code='forbidden'`.
+- **X3** — GIVEN a valid `ums_session` cookie whose user has since been **deactivated** (`isActive=false`) or deleted, WHEN a `requireAuth` route is called, THEN `401` **immediately** (not after the 8 h token expiry) with `error.code='unauthenticated'`.
 - **I1** *(supertest)* — middleware chain end-to-end: a thrown route error is shaped by the error middleware into the envelope, with the same `requestId` that's in the response header.
 
 ### BE-S2 — Prisma schema + migration + seed
-- **H1** — GIVEN an empty DB, WHEN `prisma migrate deploy` runs, THEN all M31 tables exist with the expected indexes; the seed loads departments + 6 categories + their default routing rules.
+- **H1** — GIVEN an empty DB, WHEN `prisma migrate deploy` runs, THEN all M31 tables exist with the expected indexes; the seed loads departments + 6 categories (no routing-rule table/entity — department routing is a manual per-ticket pick).
 - **E1** — GIVEN migrations have run once, WHEN re-run, THEN no-op (idempotent).
 - **E2** — GIVEN the seed has run, WHEN re-run, THEN no duplicates (upserts on `(code)` / `(name)`).
 - **X1** — GIVEN `0001_create_m31_helpdesk.down.sql` runs, THEN only M31 tables are dropped (no shared tables touched).
 - **X2** — GIVEN a row exists, WHEN trying to drop the table without cascade, THEN the down script handles it explicitly.
-- **I1** — after seed, `GET /categories` returns exactly the 6 seeded categories with their parent/active flags correct.
+- **I1** — after seed, `GET /categories` returns exactly the 6 seeded categories (a flat list — no parent/child) with their `isActive` flags correct.
 
-### BE-S3 — Categories + routing-rules CRUD (Admin)
+### BE-S3 — Categories CRUD (Admin)
 - **H1** — Admin `POST /categories { name:'X' }` → `201` category DTO; `GET /categories` includes it.
-- **E1** — Admin `POST /categories { name:'X', parentId }` → child created; tree shape preserved.
-- **E2** — Admin `POST /routing-rules { categoryId, departmentId, isDefault:true }` → any prior default for the same category is unset (same tx).
+- **E1** — Admin `PATCH /categories/:id { isActive:false }` → category deactivated (flat list — no parent/child); still returned by `GET /categories` with `isActive:false`.
 - **X1** — `POST /categories` as `SV` → `403`.
 - **X2** — `POST /categories` with name already taken → `422` `fields.name='Tên danh mục đã tồn tại'`.
-- **X3** — `DELETE /categories/:id` with children present → `409` `error.code='delete_guard'` (block).
-- **I1** — Admin creates category + routing → `GET /tickets`-related lookup uses the new routing default on the next `forward`.
+- **X3** — `DELETE /categories/:id` with **live tickets** referencing it → `409` `error.code='delete_guard'` (block).
+- **I1** — Admin creates a category → it's immediately selectable on `POST /tickets`/`PATCH /tickets/:id/category` and surfaces in `GET /categories`.
 
 ### BE-S4 — Ticket create + list + detail (read paths)
 - **H1** — SV `POST /tickets` (multipart, severity=High) → `201` TicketDTO; DB has `status=Pending` + `TicketEvent[Created]`; one `EventPublisher.ticketCreated` call.
 - **E1** — SV `GET /tickets` returns **only** their own (server-derived scoping); a HelpdeskLead sees all.
-- **E2** — `GET /tickets?status=open` returns the four non-Closed statuses.
+- **E2** — `GET /tickets?status=open` returns the five non-Closed statuses (`Pending, Assigned, InProgress, CloseRequested, RedirectRequested`).
 - **E3** — `GET /tickets?status=Pending,Assigned` filters to that subset; `?severity=Critical,High` likewise.
 - **E4** — pagination: `pageSize=2&page=2` returns the next two; `total` is the unpaged count.
 - **X1** — `POST /tickets` missing `severity` → `422` `fields.severity`.
@@ -105,9 +109,9 @@
 - **I1** *(supertest end-to-end)* — Lead closes → requester's `GET /notifications` includes the close notice → marks it read → unread count decrements.
 
 ### BE-S8 — Daily 09:00 reminder (bullmq locally, Vercel Cron in prod)
-- **H1** — invoke the handler with seeded backlog: one agent owns 3 tickets in `{Pending, Assigned, Redirected}` → exactly one `Notification[DAILY_REMINDER]` for that agent, payload listing the 3 with `severity` + `ageDays`.
+- **H1** — invoke the handler with seeded backlog: one agent owns 2 tickets in `{Pending, Assigned}` (the `BACKLOG_STATUSES`) → exactly one `Notification[DAILY_REMINDER]` for that agent, payload listing the 2 with `severity` + `ageDays`.
 - **E1** — agent with **zero** backlog → no notification.
-- **E2** — agent backlog includes `InProgress`/`Closed` → those are **excluded** from the payload (v1 spec: `{Pending,Assigned,Redirected}` only).
+- **E2** — agent backlog includes `InProgress`/`Closed` → those are **excluded** from the payload (v1 spec: `BACKLOG_STATUSES = {Pending, Assigned}` only).
 - **E3** — invoked on a date in the **holiday calendar** → no notifications created.
 - **X1** — handler invoked **twice on the same date** → dedupe key prevents the second insert; only one notification per agent per day.
 - **X2** — `ageDays` computed against an injected fixed clock for determinism (asserts `today - createdAt` integer days).
@@ -172,13 +176,27 @@
 - **H1** request-redirect → `RedirectRequested` + event + records requester + notifies agent/leads; **H2** approve-redirect picks target dept → Assigned (new dept), assignee kept, notifies new dept + requester staff; **H3** refuse → restores InProgress; **H4** refuse restores Assigned when the request came from Assigned.
 - **X1** no reason → 422; **X2** wrong dept → 403; **X3** from Pending → 409; **X4** approve to same dept → 422; **X5** non-assignee approve → 403; **X6** approve from wrong status → 409; **X7** refuse no reason → 422; **X8** SV → 403.
 
+### BE-S20 — Attachment authz + hardening *(shipped 2026-06)*
+- **H1** — `POST /attachments/upload-url` with a valid `ums_session` cookie brokers a Blob client-upload token (mirrors the multer caps: ≤10 MB).
+- **H2** — `GET /attachments/:id` for an **image/PDF** the caller may view streams it with `Content-Disposition: inline` (preview); a non-previewable doc (e.g. .docx) streams with `Content-Disposition: attachment`.
+- **H3** — `validateBlobAttachment` accepts a real PNG: the range-fetched header magic-bytes match `image/png` and the `Content-Range` size is within 10 MB.
+- **E1** — magic-byte sniffing: a `.exe` declared as `image/png` (multer path, `validateUploadedFile`) → `415 file_content_mismatch`; a MIME not in the allowlist → `415 unsupported_file_type`.
+- **E2** — `runBlobSweep` is a **no-op** unless `STORAGE_DRIVER=blob` (`skipped:'not_blob_driver'`) and unless `BLOB_READ_WRITE_TOKEN` is set (`skipped:'no_token'`); a blob younger than the 1 h grace window or still referenced by an `Attachment` row is **kept**; an old, unreferenced blob is deleted.
+- **X1** — `POST /attachments/upload-url` **without** a session cookie → `403` (the `onBeforeGenerateToken` auth gate; the server→server callback branch is unaffected).
+- **X2** — `GET /attachments/:id` for a ticket the caller may **not** view → `403`/`404` via `assertCanViewTicket` (no leak of the public Blob URL — downloads always go through the authz proxy).
+- **X3** — `validateBlobAttachment` on a Blob whose true `Content-Range` size exceeds 10 MB → `413 payload_too_large` (the client-declared size is ignored).
+
+### Cross-cutting — scoping & list payload
+- **DeptStaff scoping** — a `DeptStaff` caller sees only tickets where `routedDepartmentId = caller.departmentId`, and the department used is the **DB-revalidated** one (`requireAuth` refreshes dept each request), so an admin moving the staffer to another dept changes their visible queue on the very next request.
+- **Ticket-list payload** — list/queue endpoints use `TICKET_LIST_INCLUDE` (no `attachments` join), so every list row returns `attachments: []`; only the **detail** view (`TICKET_INCLUDE`) hydrates real attachments.
+
 ## 4. Coverage matrix (min-count compliance)
 
 | Story | Happy | Edge | Error | Integration | Meets Bảng 5.1 |
 |---|---|---|---|---|---|
-| BE-S1 | 1 | 2 | 2 | 1 | ✅ |
+| BE-S1 | 2 | 2 | 3 | 1 | ✅ |
 | BE-S2 | 1 | 2 | 2 | 1 | ✅ |
-| BE-S3 | 1 | 2 | 3 | 1 | ✅ |
+| BE-S3 | 1 | 1 | 3 | 1 | ⚠️ (routing-rules + category-tree edges removed — neither entity exists; flat-category list, delete-guard on live tickets) |
 | BE-S4 | 1 | 4 | 3 | 1 | ✅ |
 | BE-S5 | 4 | 3 | 4 | 1 | ✅ |
 | BE-S6 | 1 | 2 | 2 | 1 | ✅ |
@@ -194,9 +212,10 @@
 | BE-S17 | 4 | — | 8 | — | ✅ |
 | BE-S18 | 3 | — | 7 | — | ✅ |
 | BE-S19 | 4 | — | 8 | — | ✅ |
+| BE-S20 | 3 | 2 | 3 | — | ✅ |
 
 **Totals (v1, BE-S1…S11):** 15 happy · 28 edge · 26 error · 11 integration = **80 BE test cases**.
-**User-management + auth + close/redirect additions (BE-S12…S19, 2026-06):** ~84 more cases (10 S13 + 14 S15 + 18 S16 + 8 S12 + 12 S17 + 10 S18 + 12 S19), in the same `npm test` suite. Full BE suite green at the latest sync (**188 passing**).
+**User-management + auth + close/redirect + attachment-hardening additions (BE-S12…S20, 2026-06):** the same `npm test` suite. As executed, the full BE suite is green at **213 tests across 26 files** (`vitest run`).
 
 ## 5. Open testing questions
 

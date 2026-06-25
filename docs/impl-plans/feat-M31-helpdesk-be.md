@@ -6,7 +6,7 @@
 | Sources | `docs/brief.md`, `docs/feature-plan.md` (§A decisions, §C state machine, §E data model, §F API contract, §M Stories), `docs/test-design.md` |
 | Step | Process Step 5 — Implementation plan (`/sc:workflow --detail --persona-architect`) |
 | Output of this step | **This document only** — no code yet (Step 6 `/sc:implement`) |
-| Stack | Node 20 · **TypeScript** · Express 4 · Prisma 5 (Postgres) · Zod · multer · bullmq · pino · vitest + supertest |
+| Stack | Node 22 · **TypeScript** · Express 4 · Prisma 5 (Postgres) · Zod · multer + Vercel Blob · `google-auth-library` · bullmq · pino · vitest + supertest |
 | Hosting | **Vercel serverless** (prod) + local dev via `tsx --watch` |
 | Reference repo | `feat-admission-plan/` (JS) — patterns mirrored, language deliberately switched to TS |
 
@@ -30,7 +30,7 @@ feat-helpdesk-api/
   prisma/
     schema.prisma
     migrations/0001_create_m31_helpdesk/{migration.sql,migration.down.sql}
-    seed.ts                      # departments + categories + default routing rules
+    seed.ts                      # departments + categories + demo personas
   src/
     index.ts                     # API entry (binds Express; `app.listen` only when !VERCEL)
     worker.ts                    # local bullmq worker entry (tsx --watch worker.ts)
@@ -41,11 +41,11 @@ feat-helpdesk-api/
       rateLimitLogin.ts          # express-rate-limit instance for /auth/login
     routes/
       healthz.ts  auth.ts        # POST /auth/login, POST /auth/logout, GET /auth/me
-      categories.ts  routingRules.ts  tickets.ts  notifications.ts
+      categories.ts  tickets.ts  notifications.ts
       analytics.ts  jobs.ts      # POST /jobs/daily-reminder (Vercel-Cron-invoked)
     services/
       AuthService.ts             # verifyCredentials, signJwt, cookieOptions, parseJwt
-      TicketService.ts  CategoryService.ts  RoutingService.ts  AssignmentService.ts
+      TicketService.ts  CategoryService.ts  AssignmentService.ts
       NotificationService.ts  AttachmentService.ts  AnalyticsService.ts
     lib/
       logger.ts  prisma.ts  ids.ts  envelope.ts  errors.ts  scoping.ts
@@ -70,12 +70,12 @@ feat-helpdesk-api/
 ## C. Phased build order (each phase: files → tests → checkpoint)
 
 ### Phase 0 — Scaffold & tooling  *(blocks all)*
-- [ ] `package.json` (Node 20 engines, ESM `"type":"module"`, `tsx`/`tsc`/`vitest` scripts).
+- [ ] `package.json` (Node 22 engines, ESM `"type":"module"`, `tsx`/`tsc`/`vitest` scripts).
 - [ ] `tsconfig.json` (`strict`, `module: esnext`, `moduleResolution: bundler`, `outDir: dist`, `noEmit: false` for build).
 - [ ] ESLint + Prettier (`@typescript-eslint/*`, `eslint-config-prettier`).
 - [ ] `vitest.config.ts` (Node env, separate projects for `unit`/`service`/`integration`).
 - [ ] `docker-compose.yml` mirrors `feat-admission-plan` (postgres:15-alpine + redis:7-alpine + healthchecks).
-- [ ] `.env.example` (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORS_ORIGIN`, `JOB_SECRET`, `STORAGE_DRIVER`, `EVENT_PUBLISHER_DRIVER`, `HELPDESK_ENABLED`).
+- [ ] `.env.example` (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORS_ORIGIN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `FE_ORIGIN`, `REALTIME_EMIT_URL`, `REALTIME_EMIT_SECRET`, `REALTIME_JWT_SECRET`, `JOB_SECRET`, `STORAGE_DRIVER`, `BLOB_READ_WRITE_TOKEN`, `EVENT_PUBLISHER_DRIVER`, `QSTASH_TOKEN`, `HELPDESK_ENABLED`, `LOG_LEVEL`, `PORT`).
   - **Deployed reality:** prod `DATABASE_URL` is NeonDB; the docker-compose `localhost:5433` line is dev-only. `CORS_ORIGIN` ships with `https://umshelpdesk.vercel.app,http://localhost:3000`. **No `COOKIE_DOMAIN`** — the cookie is host-only on `ums-helpdesk-api.vercel.app` because `.vercel.app` is on the Public Suffix List and a parent-domain cookie is impossible.
 - [ ] `.github/workflows/ci.yml`: spin up the compose, `prisma migrate deploy`, `npm run lint && typecheck && test -- --coverage && build`.
 - **Checkpoint:** `npm run typecheck` clean; an empty `tests/unit/sanity.test.ts` passes via `vitest run`.
@@ -99,7 +99,7 @@ feat-helpdesk-api/
 ### Phase 2 — Prisma schema + migration + seed  *(BE-S2)*
 - [ ] `prisma/schema.prisma` — models per FP §E (PascalCase enums; `@@map` snake_case; cuid IDs; indexes). **`User` model gains only `passwordHash String?`** — `email` (unique) is the login identifier, `displayName` is what shareholders see; existing `ssoSubject` stays for the future SSO swap.
 - [ ] `0001_create_m31_helpdesk/migration.sql` (generated then committed) + `migration.down.sql` (hand-written DROP set).
-- [ ] `prisma/seed.ts` — upsert 5 departments, 6 categories, default routing rules, **13 demo personas** (one row per persona — `u-sv-1`, `u-gv-1`, `u-nv-1`, `u-agent-1`, `u-agent-2`, `u-lead-1`, `u-deptstaff-fin-1`, `u-deptstaff-it-1`, `u-deptstaff-aca-1`, `u-deptstaff-fac-1`, `u-deptstaff-hr-1`, `u-admin-1`, plus one extra GV) with `bcryptjs.hash(password, 10)`. Passwords + display names live in a `seed-personas.ts` array so FE credential-helper note can import the *same* list.
+- [ ] `prisma/seed.ts` — upsert 5 departments (`CAIRA-IT`, `CSVC`, `DT-CTSV`, `KT`, `HCNS`), 6 flat categories (no parent/child, no routing rules — Agent/Lead picks the dept per ticket), and **13 demo personas** with `bcryptjs.hash(password, 10)`. Actual persona ids: `u-sv-1`, `u-sv-2` (SV); `u-gv-1`, `u-gv-2` (GV); `u-nv-1`, `u-nv-2` (NV); `u-hda`, `u-hda-2` (HelpdeskAgent); `u-hdl` (HelpdeskLead); `u-staff` (DeptStaff · CSVC), `u-staff-hcns` (DeptStaff · HCNS), `u-staff-dt` (DeptStaff · DT-CTSV); `u-admin` (Admin). Only the three DeptStaff rows carry a `deptCode`; everyone else is `deptCode: null`. The `PERSONAS` array lives in `prisma/seed.ts` (exported) and mirrors the FE `mocks/personas.ts`.
 - [ ] `tests/helpers/test-db.ts` — `truncate ... cascade` for M31 tables; `applyMigrations()`; `seedFixtures()`.
 - [ ] `tests/helpers/login-as.ts` — `loginAs(app, { email, password })` helper that hits `POST /auth/login` and returns the `Set-Cookie` array for downstream supertest calls. Existing `X-Mock-*` header tests stay; this helper is purely additive.
 - **Tests:** `M31-BE-S2-H1..I1` (migration + seed idempotency + down-script scope + post-seed `GET /categories`; **persona-seed test asserts all 13 rows present and `bcrypt.compare(plaintext, passwordHash) === true`**).
@@ -124,10 +124,12 @@ This phase is purely additive — existing tests keep using `X-Mock-*` headers v
 - **Tests:** `M31-BE-S11-H1..I1` (login OK, me OK, wrong-password opaque 401, rate-limit, no-cookie 401, malformed-body 422, logout idempotent, full round-trip).
 - **Checkpoint:** `loginAs('u-sv-1')` helper returns a usable `Set-Cookie`; supertest can hit `GET /tickets` with that cookie and get 200; the same call without the cookie returns 401.
 
-### Phase 3 — Categories + routing-rules (Admin CRUD)  *(BE-S3)*
-- [ ] `services/CategoryService.ts` (create/update/delete + delete-guard).
-- [ ] `services/RoutingService.ts` (list/create/update/delete; transactional "unset other defaults for the same category" when `isDefault=true`).
-- [ ] `routes/categories.ts` + `routes/routingRules.ts` (Zod-bound; Admin gate; delete `409` for guarded cases).
+### Phase 3 — Categories (Admin CRUD)  *(BE-S3)*
+
+Categories are a **flat list** (`Category { id, name, isActive }` — no parent/child hierarchy). There is **no routing-rule entity** — department routing is a manual Agent/Lead pick per ticket (`routedDepartmentId`), not a configurable rule.
+
+- [ ] `services/CategoryService.ts` (create/update/delete + delete-guard on **live tickets only** — no child categories to guard).
+- [ ] `routes/categories.ts` (Zod-bound; Admin gate; delete `409` for guarded cases).
 - **Tests:** `M31-BE-S3-H1..I1`.
 - **Checkpoint:** service-layer test runs in the test DB; integration assert envelope shape; delete-guard exercised.
 
@@ -163,10 +165,10 @@ This phase is purely additive — existing tests keep using `X-Mock-*` headers v
 
 ### Phase 8 — Daily 09:00 reminder (bullmq + Vercel Cron)  *(BE-S8)*
 - [ ] `lib/calendar.ts` — public holidays config + `isHolidaySkip(d)`.
-- [ ] `jobs/daily-reminder.ts` — single handler: query backlog per agent (`Pending|Assigned|Redirected`, owned by agent), insert one `DAILY_REMINDER` per agent with dedupe key `reminder:{agentId}:{YYYY-MM-DD}` (Redis `SETNX` 24h TTL); skips if `isHolidaySkip(today)`.
+- [ ] `jobs/daily-reminder.ts` — single handler: query backlog per agent (`BACKLOG_STATUSES = Pending|Assigned`, owned by agent), insert one `DAILY_REMINDER` per agent with dedupe key `reminder:{agentId}:{YYYY-MM-DD}` (Redis `SETNX` 24h TTL); skips if `isHolidaySkip(today)`.
 - [ ] `worker.ts` — local-only: bullmq Worker on a repeatable cron `0 9 * * 1-5` (Asia/Ho_Chi_Minh).
 - [ ] `routes/jobs.ts` — `POST /jobs/daily-reminder` guarded by `Authorization: Bearer $JOB_SECRET`; invokes the same handler.
-- [ ] `vercel.json` — `crons: [{ path: '/jobs/daily-reminder', schedule: '0 2 * * 1-5' }]` *(UTC equivalent of 09:00 ICT)*; `routes` catch-all to `app.ts`.
+- [ ] `vercel.json` — `crons: [{ path: '/jobs/daily-reminder', schedule: '0 2 * * 1-5' }, { path: '/jobs/blob-sweep', schedule: '0 3 * * *' }]` *(first is the UTC equivalent of 09:00 ICT; second is the daily orphan-Blob GC — see the attachment-hardening phase below)*; `rewrites` catch-all to `api/index.ts`.
 - **Tests:** `M31-BE-S8-H1`, `-E1..3`, `-X1..2`, `-I1` — drive the handler directly with an injected clock; no real cron/queue under test.
 - **Checkpoint:** local: `tsx worker.ts` registers the repeatable; integration test for the handler is green; the `POST /jobs/daily-reminder` route is `403` without the secret.
 
@@ -346,6 +348,16 @@ The handling dept asks Helpdesk to move the ticket; the reviewer picks the desti
 - [x] `routes/tickets.ts` — `POST /tickets/:id/{request-redirect, approve-redirect, refuse-redirect}`; OpenAPI documented. `dto`: `RedirectRequested → Processing`; added to `STATUS_OPEN` + analytics `byStatus`.
 - [x] `tests/integration/tickets-redirect-request.test.ts` — `M31-BE-S19-H1..H4` (request / approve-with-dept / refuse-restores-InProgress / refuse-restores-Assigned) + `X1..X8` (no reason 422, wrong dept 403, wrong status 409, same-dept-approve 422, non-assignee 403, wrong-status-approve 409, no-reason-refuse 422, SV 403).
 
+### Phase 20 — Attachment hardening  *(shipped 2026-06; tracked retroactively)*
+
+Shipped across the upload/storage layer but not previously captured as a phase. The browser uploads files **straight to Vercel Blob** (bypassing the function-body limit), so the BE never buffers the large path — hardening had to move to a broker + a server-side re-check of the Blob object.
+
+- [x] **Blob direct-upload broker** — `routes/attachments-upload.ts` `POST /attachments/upload-url`: brokers a short-lived `@vercel/blob/client` token. Auth-gated inside `onBeforeGenerateToken` (the browser token request carries the `ums_session` cookie via the same-origin proxy; the server→server `upload-completed` callback branch is unaffected). Caps mirror multer (≤10 MB, `addRandomSuffix`). Reads `BLOB_READ_WRITE_TOKEN` from `process.env`.
+- [x] **Content validation** — `lib/upload-validation.ts`: a MIME allowlist (images jpg/png/gif/webp; docs pdf/doc/docx/xls/xlsx) + **magic-byte sniffing** (`sniffFamily`) that defeats a spoofed Content-Type. `validateUploadedFile` covers the multer path; `validateBlobAttachment` covers direct-to-Blob uploads — it **range-fetches the first 16 bytes** to sniff content and reads the **true size** from `Content-Range`/`Content-Length` (the client-declared size is untrusted).
+- [x] **Virus-scan hook** — `setVirusScanner` / `getVirusScanner` swap a real scanner (ClamAV/VirusTotal/cloud AV) in at boot; `NoopScanner` (pass-through) is the default. Runs on the multer path; skipped on the Blob path (needs the whole file).
+- [x] **Storage-driver-independent reads** — `services/AttachmentService.ts`: when `storageKey` is an `http(s)` URL (a Blob URL) it's fetched as a URL **regardless of `STORAGE_DRIVER`**; opaque keys (legacy mem/local) still go through the adapter. `GET /attachments/:id` re-checks `assertCanViewTicket` and serves images/PDFs `inline` (preview) else `attachment`.
+- [x] **Orphan-Blob GC** — `jobs/blob-sweep.ts` `runBlobSweep`: lists the `m31/` prefix, keeps blobs younger than a 1 h grace window or still referenced by an `Attachment` row, deletes the rest. No-op unless `STORAGE_DRIVER=blob` + `BLOB_READ_WRITE_TOKEN`. Exposed at `POST /jobs/blob-sweep` (`JOB_SECRET` bearer) and wired to the `0 3 * * *` Vercel cron.
+
 ## D. Cross-cutting / shared-code risks
 
 - **`lib/transitions.ts`, `lib/scoping.ts`, `lib/envelope.ts`, middleware chain** — touched once in Phase 1/5 and then frozen. Edits here ripple across every test; treat as stable after their phase ships.
@@ -356,8 +368,9 @@ The handling dept asks Helpdesk to move the ticket; the reviewer picks the desti
 
 ## E. Dependencies to add
 
-- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `cookie-parser`, `jsonwebtoken`, `bcryptjs`, `google-auth-library`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`.
-- **Dev/test:** `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/multer`, `@types/cookie-parser`, `@types/jsonwebtoken`, `@types/bcryptjs`, `@types/supertest`, `vitest`, `supertest`, `@vitest/coverage-v8`, `prisma`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`.
+- **Runtime:** `express`, `@prisma/client`, `zod`, `multer`, `@vercel/blob`, `@vercel/functions`, `swagger-ui-express`, `bullmq`, `ioredis`, `helmet`, `express-rate-limit`, `pino`, `pino-http`, `pino-pretty`, `cors`, `cookie-parser`, `jsonwebtoken`, `bcryptjs`, `google-auth-library`, `dotenv`, `@paralleldrive/cuid2`, `date-fns`, `date-fns-tz`.
+- **Dev/test:** `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/multer`, `@types/cookie-parser`, `@types/jsonwebtoken`, `@types/bcryptjs`, `@types/supertest`, `@types/swagger-ui-express`, `openapi-types`, `vitest`, `supertest`, `@vitest/coverage-v8`, `prisma`, `eslint`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin`, `eslint-config-prettier`, `prettier`, `husky`, `lint-staged`.
+- **Note on `passport`:** the Phase 12 plan (below) calls to *drop* the never-used `passport` + `passport-google-oauth20`, but in the shipped tree they **still linger in `package.json` as unused deps** (Google OAuth runs through `google-auth-library`). They can be pruned in a cleanup pass; nothing imports them.
 
 ## F. Rollback / safety
 
